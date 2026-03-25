@@ -1,4 +1,4 @@
-# Terraform
+# Terraform gitignore files & folders
 .terraform/
 terraform.tfstate
 terraform.tfstate.backup
