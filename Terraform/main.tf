@@ -3,15 +3,20 @@ provider "aws" {
 }
 
 resource "aws_s3_bucket" "test_bucket" {
-  bucket = "bmoon-terraform-test-bucket"   # bucket name must be globally unique
-  
-  # Enforce bucket owner ownership (disables ACLs)
-  object_ownership = "BucketOwnerEnforced"
-  
+  bucket = "bmoon-terraform-test-bucket"
+
   tags = {
-	Name = "bmoon-terraform-test-bucket"
-	Environment = "Dev"
-	}
+    Name        = "bmoon-terraform-test-bucket"
+    Environment = "Dev"
+  }
+}
+
+resource "aws_s3_bucket_ownership_controls" "test_bucket_ownership" {
+  bucket = aws_s3_bucket.test_bucket.id
+
+  rule {
+    object_ownership = "BucketOwnerEnforced"
+  }
 }
 
 #  acl is deprecated. So commenting out the below section added for acl bucket creation.
@@ -19,3 +24,5 @@ resource "aws_s3_bucket" "test_bucket" {
 #	bucket = aws_s3_bucket.test_bucket.id
 #	acl = "private"
 #}
+
+
