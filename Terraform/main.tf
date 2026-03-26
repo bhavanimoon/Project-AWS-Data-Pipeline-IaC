@@ -43,6 +43,10 @@ resource "aws_glue_job" "simple_glue" {
   role_arn = "arn:aws:iam::834889206747:role/glue-exec-role"
   command {
     name            = "glueetl"
-    script_location = "s3://my-bucket/scripts/glue_script.py"
+    script_location = "s3://bmoon-terraform-test-bucket/Scripts/glue_script.py"
+	python_version = "3"
   }
+  
+  glue_version = "3.0"
+  max_capacity = 2
 }
