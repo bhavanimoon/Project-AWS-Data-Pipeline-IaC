@@ -1,0 +1,30 @@
+# Glue Trust Policies:
+
+# Option 1: Glue Execution Role - json format
+# If placed in a file - file name: glue-trust-policy.json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": { "Service": "glue.amazonaws.com" },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+
+# Option 2: Glue Execution Role using single line JSON
+aws iam create-role --role-name glue-exec-role `
+  --assume-role-policy-document '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"glue.amazonaws.com\"},\"Action\":\"sts:AssumeRole\"}]}' `
+  --profile admin
+  
+# Attach policies:
+aws iam attach-role-policy `
+  --role-name glue-exec-role `
+  --policy-arn arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole `
+  --profile admin
+
+aws iam attach-role-policy `
+  --role-name glue-exec-role `
+  --policy-arn arn:aws:iam::aws:policy/AmazonS3FullAccess `
+  --profile admin

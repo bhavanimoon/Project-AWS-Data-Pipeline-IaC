@@ -33,30 +33,16 @@ resource "aws_lambda_function" "hello_world" {
   function_name = "hello-world-function"
   runtime       = "python3.11"   # use supported runtime
   handler       = "lambda_function.lambda_handler"
-  role          = aws_iam_role.lambda_exec.arn
+  role          = "arn:aws:iam::834889206747:role/lambda-exec-role"
   filename      = "lambda_function.zip"
 }
 
-# IAM Role for Lambda function:
-resource "aws_iam_role" "lambda_exec" {
-  name = "lambda-exec-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [
-      {
-        Action = "sts:AssumeRole",
-        Principal = {
-          Service = "lambda.amazonaws.com"
-        },
-        Effect = "Allow"
-      }
-    ]
-  })
-}
-
-# IAM Role Policy attachment:
-resource "aws_iam_role_policy_attachment" "lambda_basic" {
-  role       = aws_iam_role.lambda_exec.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+# Create Glue job:
+resource "aws_glue_job" "simple_glue" {
+  name     = "my-glue-job"
+  role_arn = "arn:aws:iam::834889206747:role/glue-exec-role"
+  command {
+    name            = "glueetl"
+    script_location = "s3://my-bucket/scripts/glue_script.py"
+  }
 }

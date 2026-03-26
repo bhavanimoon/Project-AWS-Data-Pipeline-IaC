@@ -1,0 +1,27 @@
+# Lambda Trust Policies:
+
+# Option 1: Lambda Execution Role - json format
+# If placed in a file - file name: lambda-trust-policy.json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": { "Service": "lambda.amazonaws.com" },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+
+# Option 2: Lambda Execution Role using single line JSON
+aws iam create-role --role-name lambda-exec-role `
+  --assume-role-policy-document '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"lambda.amazonaws.com\"},\"Action\":\"sts:AssumeRole\"}]}' `
+  --profile admin
+  
+# Attach the basic execution policy (for CloudWatch logs):
+aws iam attach-role-policy --role-name lambda-exec-role --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole --profile admin
+
+aws iam attach-role-policy `
+  --role-name lambda-exec-role `
+  --policy-arn arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess `
+  --profile admin
