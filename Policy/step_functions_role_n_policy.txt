@@ -1,0 +1,24 @@
+# STEP FUNCTIONS ROLE & POLICY - CREATE & ATTACH:
+
+Step 1:	Create 'step_functions_role.json' & 'step_functions_policy.json' files.
+
+Step 2: Navigate to the right folder & change to the required AWS user. (use Windows Powershell)
+$env:AWS_PROFILE='admin'
+
+Step 3: Create 'step-func-exec-role'
+aws iam create-role `
+  --role-name step-func-exec-role `
+  --assume-role-policy-document file://step_functions_role.json `
+  --profile admin
+
+Step 4: Create 'StepFunctionsExecutePolicy'
+aws iam create-policy `
+  --policy-name StepFunctionsExecutePolicy `
+  --policy-document file://step_functions_policy.json `
+  --profile admin
+
+Step 5: Attach 'StepFunctionsExecutePolicy' policy to 'step-func-exec-role' role  
+aws iam attach-role-policy `
+  --role-name step-func-exec-role `
+  --policy-arn arn:aws:iam::834889206747:policy/StepFunctionsExecutePolicy `
+  --profile admin

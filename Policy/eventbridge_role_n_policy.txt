@@ -1,0 +1,24 @@
+# EVENT BRIDGE ROLE & POLICY - CREATE & ATTACH:
+
+Step 1:	Create 'eventbridge_role.json' & 'eventbridge_policy.json' files.
+
+Step 2: Navigate to the right folder & change to the required AWS user. (use Windows Powershell)
+$env:AWS_PROFILE='admin'
+
+Step 3: Create 'eventbridge-invoke-stepfun-role'
+aws iam create-role `
+  --role-name eventbridge-invoke-stepfun-role `
+  --assume-role-policy-document file://eventbridge_role.json `
+  --profile admin
+
+Step 4: Create 'StepFunctionsExecutePolicy'
+aws iam create-policy `
+  --policy-name EventBridgeInvokeStepFunPolicy `
+  --policy-document file://eventbridge_policy.json `
+  --profile admin
+
+Step 5: Attach 'EventBridgeInvokeStepFunPolicy' policy to 'eventbridge-invoke-stepfun-role' role  
+aws iam attach-role-policy `
+  --role-name eventbridge-invoke-stepfun-role `
+  --policy-arn arn:aws:iam::834889206747:policy/EventBridgeInvokeStepFunPolicy `
+  --profile admin

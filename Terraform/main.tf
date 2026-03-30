@@ -50,3 +50,46 @@ resource "aws_glue_job" "simple_glue" {
   glue_version = "3.0"
   max_capacity = 2
 }
+
+# Create Step Functions - State Machine:
+resource "aws_sfn_state_machine" "etl_pipeline" {
+  name     = "ETL_Pipeline_StateMachine"
+  role_arn = "arn:aws:iam::834889206747:role/step-func-exec-role"
+
+  definition = jsonencode({
+    StartAt = "ValidateFile",
+    States = {
+      ValidateFile = {
+        Type     = "Task",
+        Resource = "arn:aws:states:::lambda:invoke",
+        Parameters = {
+          FunctionName = aws_lambda_function.hello_world.arn
+        },
+        Next = "RunGlueJob"
+      },
+      RunGlueJob = {
+        Type     = "Task",
+        Resource = "arn:aws:states:::glue:startJobRun.sync",
+        Parameters = {
+          JobName = aws_glue_job.simple_glue.name
+        },
+        End = true
+      }
+    }
+  })
+}
+
+# Create Event Bridge - Rule:
+resource "aws_cloudwatch_event_rule" "etl_schedule" {
+  name                = "ETL_Schedule"
+  description         = "Trigger ETL pipeline every day at 2 AM"
+  schedule_expression = "cron(30 2 * * ? *)"
+}
+
+# Link Event Bridge Rule to ETL Target:
+resource "aws_cloudwatch_event_target" "etl_target" {
+  rule      = aws_cloudwatch_event_rule.etl_schedule.name
+  target_id = "StepFunctionTrigger"
+  arn       = aws_sfn_state_machine.etl_pipeline.arn
+  role_arn  = "arn:aws:iam::834889206747:role/eventbridge-invoke-stepfun-role"
+}
