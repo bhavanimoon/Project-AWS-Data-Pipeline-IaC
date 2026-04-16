@@ -1,0 +1,102 @@
+FUNCTION glue_job_main(date_folder):
+
+    INITIALIZE logger
+    bucket_name ← read from environment variable
+    input_prefix ← "validated-files/pass/" + date_folder + "/"
+    output_prefix ← "glue-job/output/" + date_folder + "/"
+    reject_prefix ← "glue-job/reject/" + date_folder + "/"
+
+    # Step 1: Read input files
+    files ← list_objects(bucket_name, prefix=input_prefix)
+    IF files is empty:
+        LOG "No validated files found"
+        RETURN status "Fail"
+
+    FOR each file in files:
+
+        dataset ← read_csv(file)
+
+        pass_records ← []
+        reject_records ← []
+
+        # Step 2: Remove duplicates
+        duplicates ← find_duplicates(dataset)
+        FOR each record in duplicates:
+            record["Reject_Reason"] ← "Duplicate record"
+            reject_records.append(record)
+
+        dataset ← dataset - duplicates
+
+        # Step 3: Validate schema headers
+        IF headers(dataset) != expected_schema:
+            FOR each record in dataset:
+                record["Reject_Reason"] ← "Schema mismatch"
+                reject_records.append(record)
+            CONTINUE to next file
+
+        # Step 4: Record-level validation
+        FOR each record in dataset:
+
+            IF len(record) != len(expected_schema):
+                record["Reject_Reason"] ← "Incomplete record - missing fields"
+                reject_records.append(record)
+                CONTINUE
+
+            IF Name is empty AND Address is empty:
+                record["Reject_Reason"] ← "Missing mandatory fields"
+                reject_records.append(record)
+                CONTINUE
+
+            IF Bedroom/Guest Limit is non-numeric string (not empty AND not integer):
+                record["Reject_Reason"] ← "Invalid Bedroom/Guest Limit"
+                reject_records.append(record)
+                CONTINUE
+
+            IF Expiration Date is non-date string (not empty AND not valid date):
+                record["Reject_Reason"] ← "Invalid Expiration Date"
+                reject_records.append(record)
+                CONTINUE
+
+            # Step 5: Transformations (only for valid records)
+            Address ← TitleCase(Address)
+            IF Address is empty → Address ← Name
+
+            Name ← strip_leading_digits(Name)
+            Name ← TitleCase(Name)
+            IF Name is empty → Name ← strip_leading_digits(Address)
+
+            Type ← TitleCase(Type)
+            IF Type is empty → Type ← "Default Value - B&B"
+
+            Bedroom Limit ← cast_to_int(Bedroom Limit, default=0)
+            Guest Limit ← cast_to_int(Guest Limit, default=0)
+
+            Expiration Date ← parse_date(Expiration Date, format="dd/MM/yyyy", default="30/12/2050")
+
+            Loc_Latitude, Loc_Longitude ← split_location(Location, defaults=(29.95, -90.07))
+
+            GIS_Easting ← X if present else 3650000
+            GIS_Northing ← Y if present else 500000
+
+            Data_Lineage_ID ← <filename>_<timestamp>
+
+            pass_records.append(record)
+
+        # Step 6: Normalize headers to Title Case
+        pass_records.headers ← TitleCase(headers)
+        reject_records.headers ← TitleCase(headers) + ["Reject_Reason"]
+
+        # Step 7: Write outputs (exactly two files per input file)
+        write_csv(pass_records, bucket_name, output_prefix + filename + "_pass.csv")
+        write_csv(reject_records, bucket_name, reject_prefix + filename + "_fail.csv")
+
+    # Step 8: Update Glue Catalog
+    update_glue_catalog(expected_schema)
+
+    # Step 9: Final status
+    IF any pass_records exist:
+        RETURN status "Pass"
+    ELSE:
+        RETURN status "Fail"
+
+END FUNCTION

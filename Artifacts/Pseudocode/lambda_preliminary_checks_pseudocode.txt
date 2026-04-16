@@ -1,0 +1,48 @@
+FUNCTION lambda_preliminary_checks(event, context):
+
+    INITIALIZE logger
+    bucket_name ← read from environment variable
+    input_prefix ← "input/"
+
+    # Step 1: List all files in input folder
+    files ← list_objects(bucket_name, prefix=input_prefix)
+
+    FOR each file in files:
+
+        READ file content from S3
+
+        # Step 2: Basic checks
+        IF extension != ".csv":
+            MOVE file → validated-files/fail/
+            LOG "Invalid format"
+            CONTINUE
+
+        IF file is empty OR has < 2 rows:
+            MOVE file → validated-files/fail/
+            LOG "Empty file"
+            CONTINUE
+
+        headers ← first row of file
+        normalized_headers ← normalize(headers)
+        IF normalized_headers != expected_raw_schema:
+            MOVE file → validated-files/fail/
+            LOG "Header mismatch"
+            CONTINUE
+
+        # Step 3: Mandatory fields check
+        IF all rows missing Name AND Address:
+            MOVE file → validated-files/fail/
+            LOG "Missing mandatory fields"
+            CONTINUE
+
+        # Step 4: Passed preliminary checks
+        MOVE file → validated-files/pass/
+        LOG "Validation passed"
+
+    # Step 5: After all files processed
+    IF at least one file in validated-files/pass/:
+        RETURN status "Pass"
+    ELSE:
+        RETURN status "Fail"
+
+END FUNCTION

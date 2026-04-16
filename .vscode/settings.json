@@ -1,0 +1,5 @@
+{
+  "python.analysis.extraPaths": [
+    "C:/Anaconda/envs/env_gideonlabs/Lib/site-packages"
+  ]
+}
