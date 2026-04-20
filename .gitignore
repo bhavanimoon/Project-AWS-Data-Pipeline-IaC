@@ -21,3 +21,16 @@ override.tf.json
 # CLI configuration files
 .terraformrc
 terraform.rc
+
+# Ignore Python cache
+__pycache__/
+*.pyc
+
+# Ignore local Tests folder
+Tests/
+
+# Ignore vscode settings
+.vscode/
+settings.json
+
+
