@@ -29,27 +29,54 @@ resource "aws_s3_bucket_ownership_controls" "test_bucket_ownership" {
 #}
 
 # Create Lambda function:
-resource "aws_lambda_function" "hello_world" {
-  function_name = "hello-world-function"
-  runtime       = "python3.11"   # use supported runtime
-  handler       = "lambda_function.lambda_handler"
-  role          = "arn:aws:iam::834889206747:role/lambda-exec-role"
-  filename      = "lambda_function.zip"
-}
+# Sample lambda function created to test out terraform init, plan and apply
+# Commented on 21-Apr-2026
+# resource "aws_lambda_function" "hello_world" {
+#   function_name = "hello-world-function"
+#   runtime       = "python3.11"   # use supported runtime
+#   handler       = "lambda_function.lambda_handler"
+#   role          = "arn:aws:iam::834889206747:role/lambda-exec-role"
+#   filename      = "lambda_function.zip"
+# }
 
 # Create Glue job:
-resource "aws_glue_job" "simple_glue" {
-  name     = "my-glue-job"
+# Sample glue job created to test out terraform init, plan and apply
+# Commented on 21-Apr-2026
+# resource "aws_glue_job" "simple_glue" {
+#   name     = "my-glue-job"
+#   role_arn = "arn:aws:iam::834889206747:role/glue-exec-role"
+#   command {
+#     name            = "glueetl"
+#     script_location = "s3://bmoon-terraform-test-bucket/Scripts/glue_script.py"
+# 	python_version = "3"
+#   }
+  
+#   glue_version = "3.0"
+#   max_capacity = 2
+# }
+
+# Create lambda function for lambda_preliminary_checks.py:
+resource "aws_lambda_function" "lambda_preprocessor" {
+  function_name = "lambda-preprocessor-function"
+  runtime       = "python3.11"
+  handler       = "lambda_preliminary_checks.lambda_handler"
+  role          = "arn:aws:iam::834889206747:role/lambda-exec-role"
+  filename      = "lambda_preliminary_checks.zip"
+}
+
+# Create glue job for glue_data_processing.py
+resource "aws_glue_job" "glue_processor" {
+  name     = "glue-data-processor-job"
   role_arn = "arn:aws:iam::834889206747:role/glue-exec-role"
   command {
     name            = "glueetl"
-    script_location = "s3://bmoon-terraform-test-bucket/Scripts/glue_script.py"
-	python_version = "3"
+    script_location = "s3://bmoon-terraform-test-bucket/Scripts/glue_data_processing.py"
+    python_version  = "3"
   }
-  
   glue_version = "3.0"
   max_capacity = 2
 }
+
 
 # Create Step Functions - State Machine:
 resource "aws_sfn_state_machine" "etl_pipeline" {
@@ -63,7 +90,8 @@ resource "aws_sfn_state_machine" "etl_pipeline" {
         Type     = "Task",
         Resource = "arn:aws:states:::lambda:invoke",
         Parameters = {
-          FunctionName = aws_lambda_function.hello_world.arn
+          #FunctionName = aws_lambda_function.hello_world.arn
+          FunctionName = aws_lambda_function.lambda_preprocessor.arn
         },
         Next = "RunGlueJob"
       },
@@ -71,7 +99,8 @@ resource "aws_sfn_state_machine" "etl_pipeline" {
         Type     = "Task",
         Resource = "arn:aws:states:::glue:startJobRun.sync",
         Parameters = {
-          JobName = aws_glue_job.simple_glue.name
+          #JobName = aws_glue_job.simple_glue.name
+          JobName = aws_glue_job.glue_processor.name
         },
         End = true
       }
