@@ -1,0 +1,139 @@
+# BMoon_Glue_CustomAccess
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": 
+        [
+            "glue:StartJobRun",
+            "glue:GetJob*"
+        ]
+      "Resource": "*"
+    }
+  ]
+}
+
+# BMoon_Lambda_CustomAccess
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": 
+        [
+            "lambda:UpdateFunction*",
+            "lambda:InvokeFunction"
+        ]
+      "Resource": "*"
+    }
+  ]
+}
+
+#BMoon_CloudWatch_CustomAccess
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": 
+        [
+            "logs:CreateLog*",
+            "logs:PutLogEvents",
+            "logs:GetLogEvents"
+        ]
+      "Resource": "*"
+    }
+  ]
+}
+
+# BMoon_S3_CustomAccess
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::your-artifacts-bucket",
+        "arn:aws:s3:::your-artifacts-bucket/*"
+      ]
+    }
+  ]
+}
+
+# BMoon_StepFunctions_CustomAccess
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "states:CreateStateMachine",
+        "states:UpdateStateMachine",
+        "states:DeleteStateMachine",
+        "states:ListStateMachines",
+        "states:DescribeStateMachine",
+        "states:ListStateMachineVersions"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+
+#BMoon_EventBridge_CustomAccess
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "events:PutRule",
+        "events:DescribeRule",
+        "events:DeleteRule",
+        "events:ListRules",
+        "events:PutTargets",
+        "events:RemoveTargets",
+        "events:ListTargetsByRule"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+
+#BMoon_IAM_PassRole
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": [
+        "arn:aws:iam::123456789012:role/glue-exec-role",
+        "arn:aws:iam::123456789012:role/lambda-exec-role",
+        "arn:aws:iam::123456789012:role/step-func-exec-role"
+      ]
+    }
+  ]
+}
+
+# BMoon_CloudWatch_Metrics_CustomAccess
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:PutMetricData",
+        "cloudwatch:GetMetricData",
+        "cloudwatch:ListMetrics"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
