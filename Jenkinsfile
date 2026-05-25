@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        AWS_DEFAULT_REGION = 'ap-south-2'   // Hyderabad region
+        AWS_DEFAULT_REGION = 'ap-south-2'
     }
 
     stages {
@@ -11,22 +11,49 @@ pipeline {
                 git(
                     url: 'https://github.com/bhavanimoon/Project-AWS-Data-Pipeline-IaC',
                     branch: 'main',
-                    credentialsId: 'github-iac-aws-project-token' // GitHub PAT credential ID
+                    credentialsId: 'github-iac-aws-project-token'   // GitHub PAT credential ID
                 )
             }
         }
 
-        stage('Terraform Init/Plan/Apply') {
+        stage('Terraform Init') {
+            steps {
+                sh 'cd Terraform && terraform init -upgrade'
+            }
+        }
+
+        stage('Terraform Plan') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'AWS_Jen_IAM_Creds',
                                                  usernameVariable: 'AWS_ACCESS_KEY_ID',
                                                  passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     sh '''
+                      cd Terraform
                       export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
                       export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-                      terraform init
-                      terraform plan
-                      terraform apply -auto-approve
+                      terraform plan -out=tfplan
+                    '''
+                }
+                archiveArtifacts artifacts: 'Terraform/tfplan', fingerprint: true
+            }
+        }
+
+        stage('Manual Approval') {
+            steps {
+                input message: 'Approve Terraform Apply?', ok: 'Apply'
+            }
+        }
+
+        stage('Terraform Apply') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'AWS_Jen_IAM_Creds',
+                                                 usernameVariable: 'AWS_ACCESS_KEY_ID',
+                                                 passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    sh '''
+                      cd Terraform
+                      export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+                      export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+                      terraform apply -auto-approve tfplan
                     '''
                 }
             }
@@ -40,25 +67,28 @@ pipeline {
                     sh '''
                       export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
                       export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-                      aws glue get-job --job-name my-glue-job --query "Job.Name" --output text
+                      aws glue get-job-run --job-name my-glue-job --run-id <latest-run-id> --query "JobRun.JobRunState" --output text
                     '''
                 }
             }
         }
-        
+
         stage('Audit Logging') {
             steps {
-                echo 'Audit trail stage placeholder'
+                sh '''
+                  echo "Commit: ${env.GIT_COMMIT}, Build: ${env.BUILD_ID}" >> audit.log
+                  aws s3 cp audit.log s3://my-audit-bucket/${env.BUILD_ID}/audit.log
+                '''
             }
         }
     }
 
     post {
         success {
-            echo 'Terraform applied successfully. Infrastructure is up to date.'
+            echo 'Terraform applied successfully.'
         }
         failure {
-            echo 'Terraform apply failed. Check logs for details.'
+            echo 'Terraform apply failed.'
         }
         always {
             archiveArtifacts artifacts: '**/terraform.tfstate', fingerprint: true
