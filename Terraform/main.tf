@@ -1,3 +1,19 @@
+terraform {
+  backend "s3" {
+    bucket         = "bmoon-terraform-state"
+    key            = "iac/terraform.tfstate"
+    region         = "ap-south-2"
+    dynamodb_table = "terraform-locks"
+  }
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
 # Provider Region:
 provider "aws" {
   region = "ap-south-2" # Asia Pacific (Hyderabad)
@@ -22,39 +38,6 @@ resource "aws_s3_bucket_ownership_controls" "test_bucket_ownership" {
   }
 }
 
-#  acl is deprecated. So commenting out the below section added for acl bucket creation.
-#resource "aws_s3_bucket_acl" "test_bucket_acl" {
-#	bucket = aws_s3_bucket.test_bucket.id
-#	acl = "private"
-#}
-
-# Create Lambda function:
-# Sample lambda function created to test out terraform init, plan and apply
-# Commented on 21-Apr-2026
-# resource "aws_lambda_function" "hello_world" {
-#   function_name = "hello-world-function"
-#   runtime       = "python3.11"   # use supported runtime
-#   handler       = "lambda_function.lambda_handler"
-#   role          = "arn:aws:iam::834889206747:role/lambda-exec-role"
-#   filename      = "lambda_function.zip"
-# }
-
-# Create Glue job:
-# Sample glue job created to test out terraform init, plan and apply
-# Commented on 21-Apr-2026
-# resource "aws_glue_job" "simple_glue" {
-#   name     = "my-glue-job"
-#   role_arn = "arn:aws:iam::834889206747:role/glue-exec-role"
-#   command {
-#     name            = "glueetl"
-#     script_location = "s3://bmoon-terraform-test-bucket/Scripts/glue_script.py"
-# 	python_version = "3"
-#   }
-  
-#   glue_version = "3.0"
-#   max_capacity = 2
-# }
-
 # Create lambda function for lambda_preliminary_checks.py:
 resource "aws_lambda_function" "lambda_preprocessor" {
   function_name = "lambda-preprocessor-function"
@@ -76,7 +59,6 @@ resource "aws_glue_job" "glue_processor" {
   glue_version = "3.0"
   max_capacity = 2
 }
-
 
 # Create Step Functions - State Machine:
 resource "aws_sfn_state_machine" "etl_pipeline" {

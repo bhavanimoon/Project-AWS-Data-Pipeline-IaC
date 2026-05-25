@@ -16,21 +16,39 @@ pipeline {
             }
         }
 
-        stage('Terraform Init') {
+        stage('Terraform Init/Plan/Apply') {
             steps {
-                sh 'terraform init'
+                withCredentials([usernamePassword(credentialsId: 'AWS_Jen_IAM_Creds',
+                                                 usernameVariable: 'AWS_ACCESS_KEY_ID',
+                                                 passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    sh '''
+                      export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+                      export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+                      terraform init
+                      terraform plan
+                      terraform apply -auto-approve
+                    '''
+                }
             }
         }
 
-        stage('Terraform Plan') {
+        stage('Glue Job Validation') {
             steps {
-                sh 'terraform plan'
+                withCredentials([usernamePassword(credentialsId: 'AWS_Jen_IAM_Creds',
+                                                 usernameVariable: 'AWS_ACCESS_KEY_ID',
+                                                 passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    sh '''
+                      export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+                      export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+                      aws glue get-job --job-name my-glue-job --query "Job.Name" --output text
+                    '''
+                }
             }
         }
-
-        stage('Terraform Apply') {
+        
+        stage('Audit Logging') {
             steps {
-                sh 'terraform apply -auto-approve'
+                echo 'Audit trail stage placeholder'
             }
         }
     }
