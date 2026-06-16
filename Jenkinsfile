@@ -5,6 +5,10 @@ pipeline {
         AWS_DEFAULT_REGION = 'ap-south-2'
     }
 
+    tools {
+        git 'Git-Default'
+    }
+
     stages {
         stage('Checkout') {
             steps {

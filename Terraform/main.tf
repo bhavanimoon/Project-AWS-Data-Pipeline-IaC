@@ -3,7 +3,8 @@ terraform {
     bucket         = "bmoon-terraform-state"
     key            = "iac/terraform.tfstate"
     region         = "ap-south-2"
-    dynamodb_table = "terraform-locks"
+    use_lockfile   = true
+    # dynamodb_table = "terraform-locks"
   }
 
   required_providers {
