@@ -2,6 +2,7 @@ pipeline {
     agent any
 
     environment {
+        PATH = "/usr/bin:${env.PATH}"
         AWS_DEFAULT_REGION = 'ap-south-2'
     }
 
@@ -19,6 +20,18 @@ pipeline {
     //             )
     //         }
     //     }
+
+        stage('Verify Git Tool') {
+            steps {
+                sh 'which git && git --version'
+            }
+        }
+
+        stage('Check PATH') {
+            steps {
+                sh 'echo $PATH'
+            }
+        }    
 
         stage('Checkout') {
             steps {
@@ -84,7 +97,7 @@ pipeline {
                     sh '''
                       export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
                       export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-                      aws glue get-job-run --job-name my-glue-job --run-id <latest-run-id> --query "JobRun.JobRunState" --output text
+                      aws glue get-job --job-name glue-data-processor-job --region ap-south-2
                     '''
                 }
             }
