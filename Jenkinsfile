@@ -10,19 +10,32 @@ pipeline {
     }
 
     stages {
+    //     stage('Checkout') {
+    //         steps {
+    //             git(
+    //                 url: 'https://github.com/bhavanimoon/Project-AWS-Data-Pipeline-IaC',
+    //                 branch: 'main',
+    //                 credentialsId: 'github-iac-aws-project-token'   // GitHub PAT credential ID
+    //             )
+    //         }
+    //     }
+
         stage('Checkout') {
             steps {
-                git(
-                    url: 'https://github.com/bhavanimoon/Project-AWS-Data-Pipeline-IaC',
-                    branch: 'main',
-                    credentialsId: 'github-iac-aws-project-token'   // GitHub PAT credential ID
-                )
+                checkout([$class: 'GitSCM',
+                    branches: [[name: '*/main']],
+                    userRemoteConfigs: [[
+                        url: 'https://github.com/bhavanimoon/Project-AWS-Data-Pipeline-IaC.git',
+                        credentialsId: 'github-iac-aws-project-token'
+                    ]],
+                    extensions: []
+                ])
             }
         }
 
         stage('Terraform Init') {
             steps {
-                sh 'cd Terraform && terraform init -upgrade'
+                sh 'cd Terraform && terraform init -upgrade -migrate-state'
             }
         }
 
