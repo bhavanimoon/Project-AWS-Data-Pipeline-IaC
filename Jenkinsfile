@@ -1,6 +1,10 @@
 pipeline {
     agent any
 
+    options {
+        skipDefaultCheckout()
+    }
+
     environment {
         PATH = "/usr/bin:${env.PATH}"
         AWS_DEFAULT_REGION = 'ap-south-2'
@@ -11,16 +15,6 @@ pipeline {
     }
 
     stages {
-    //     stage('Checkout') {
-    //         steps {
-    //             git(
-    //                 url: 'https://github.com/bhavanimoon/Project-AWS-Data-Pipeline-IaC',
-    //                 branch: 'main',
-    //                 credentialsId: 'github-iac-aws-project-token'   // GitHub PAT credential ID
-    //             )
-    //         }
-    //     }
-
         stage('Verify Git Tool') {
             steps {
                 sh 'which git && git --version'
@@ -105,9 +99,9 @@ pipeline {
 
         stage('Audit Logging') {
             steps {
-                sh '''
-                  echo "Commit: ${env.GIT_COMMIT}, Build: ${env.BUILD_ID}" >> audit.log
-                  aws s3 cp audit.log s3://my-audit-bucket/${env.BUILD_ID}/audit.log
+                sh '''#!/bin/bash
+                    echo "Commit: ${GIT_COMMIT}, Branch: ${BRANCH_NAME}, Build: ${BUILD_ID}" >> audit.log
+                    aws s3 cp audit.log s3://my-audit-bucket/${BUILD_ID}/audit.log
                 '''
             }
         }
