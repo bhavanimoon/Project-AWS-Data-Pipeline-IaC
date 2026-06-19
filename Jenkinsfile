@@ -101,7 +101,7 @@ pipeline {
             steps {
                 sh '''#!/bin/bash
                     echo "Commit: ${GIT_COMMIT}, Branch: ${BRANCH_NAME}, Build: ${BUILD_ID}" >> audit.log
-                    aws s3 cp audit.log s3://my-audit-bucket/${BUILD_ID}/audit.log
+                    aws s3 cp audit.log s3://bmoon-terraform-test-bucket/Audit/${BUILD_ID}/audit.log
                 '''
             }
         }
