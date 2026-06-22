@@ -10,7 +10,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = "~> 6.0"
     }
   }
 }
@@ -30,12 +30,48 @@ resource "aws_s3_bucket" "test_bucket" {
   }
 }
 
-# S3 bucket ownership control:
+# S3 bucket ownership control for the main bmoon-terraform-test-bucket:
 resource "aws_s3_bucket_ownership_controls" "test_bucket_ownership" {
   bucket = aws_s3_bucket.test_bucket.id
 
   rule {
     object_ownership = "BucketOwnerEnforced"
+  }
+}
+
+# Create S3 bucket - to log terraform states:
+resource "aws_s3_bucket" "state_bucket" {
+  bucket = "bmoon-terraform-state"
+
+  tags = {
+    Name        = "bmoon-terraform-state"
+    Environment = "Dev"
+  }
+}
+
+# S3 bucket ownership control for the Terraform State bucket - bmoon-terraform-state:
+resource "aws_s3_bucket_ownership_controls" "state_bucket_ownership" {
+  bucket = aws_s3_bucket.state_bucket.id
+
+  rule {
+    object_ownership = "BucketOwnerEnforced"
+  }
+}
+
+# Create DynamoDB table for Terraform Locks:
+resource "aws_dynamodb_table" "terraform_locks" {
+  name           = "terraform-locks"
+  billing_mode   = "PAY_PER_REQUEST"
+  hash_key       = "LockID"
+
+  attribute {
+    name = "LockID"
+    type = "S"
+  }
+
+  tags = {
+    Name        = "terraform-locks"
+    Environment = "Dev"
   }
 }
 
@@ -59,6 +95,7 @@ resource "aws_glue_job" "glue_processor" {
   }
   glue_version = "3.0"
   max_capacity = 2
+  timeout      = 5   # timeout in minutes
 }
 
 # Create Step Functions - State Machine:
@@ -74,7 +111,10 @@ resource "aws_sfn_state_machine" "etl_pipeline" {
         Resource = "arn:aws:states:::lambda:invoke",
         Parameters = {
           #FunctionName = aws_lambda_function.hello_world.arn
-          FunctionName = aws_lambda_function.lambda_preprocessor.arn
+          FunctionName = aws_lambda_function.lambda_preprocessor.arn,
+          Payload = {
+            "bucket.$" = "$.bucket"
+          }
         },
         Next = "RunGlueJob"
       },
@@ -83,7 +123,11 @@ resource "aws_sfn_state_machine" "etl_pipeline" {
         Resource = "arn:aws:states:::glue:startJobRun.sync",
         Parameters = {
           #JobName = aws_glue_job.simple_glue.name
-          JobName = aws_glue_job.glue_processor.name
+          JobName = aws_glue_job.glue_processor.name,
+          Arguments = {
+            "--BUCKET_NAME.$" = "$.Payload.bucket",
+            "--DATE_FOLDER.$" = "$.Payload.date_folder"
+          }
         },
         End = true
       }
@@ -95,7 +139,7 @@ resource "aws_sfn_state_machine" "etl_pipeline" {
 resource "aws_cloudwatch_event_rule" "etl_schedule" {
   name                = "ETL_Schedule"
   description         = "Trigger ETL pipeline every day at 2 AM"
-  schedule_expression = "cron(50 13 19 6 ? 2026)"
+  schedule_expression = "cron(50 13 22 6 ? 2026)"
 }
 
 # Link Event Bridge Rule to ETL Target:
@@ -104,4 +148,8 @@ resource "aws_cloudwatch_event_target" "etl_target" {
   target_id = "StepFunctionTrigger"
   arn       = aws_sfn_state_machine.etl_pipeline.arn
   role_arn  = "arn:aws:iam::834889206747:role/eventbridge-invoke-stepfun-role"
+
+  input = jsonencode({
+    bucket = aws_s3_bucket.test_bucket.bucket
+  })
 }
