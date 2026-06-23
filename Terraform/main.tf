@@ -95,7 +95,7 @@ resource "aws_glue_job" "glue_processor" {
   }
   glue_version = "3.0"
   max_capacity = 2
-  timeout      = 5   # timeout in minutes
+  timeout      = 10   # timeout in minutes
 }
 
 # Create Step Functions - State Machine:
@@ -116,7 +116,18 @@ resource "aws_sfn_state_machine" "etl_pipeline" {
             "bucket.$" = "$.bucket"
           }
         },
-        Next = "RunGlueJob"
+        Next = "CheckValidationResult"
+      },
+      CheckValidationResult = {
+        Type = "Choice",
+        Choices = [
+          {
+            Variable = "$.Payload.status",
+            StringEquals = "Pass",
+            Next = "RunGlueJob"
+          }
+        ],
+        Default = "ValidationFailed"
       },
       RunGlueJob = {
         Type     = "Task",
@@ -126,10 +137,18 @@ resource "aws_sfn_state_machine" "etl_pipeline" {
           JobName = aws_glue_job.glue_processor.name,
           Arguments = {
             "--BUCKET_NAME.$" = "$.Payload.bucket",
-            "--DATE_FOLDER.$" = "$.Payload.date_folder"
+            "--DATE_FOLDER.$" = "$.Payload.date_folder",
+            # Optional Arugments for future proofing:
+            "--VALIDATED_PREFIX.$" = "$.Payload.validated_prefix",
+            "--FILES.$"            = "$.Payload.files"
           }
         },
         End = true
+      },
+      ValidationFailed = {
+        Type = "Fail",
+        Error = "ValidationFailed",
+        Cause = "$.Payload.reason"
       }
     }
   })
