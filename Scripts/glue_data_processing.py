@@ -22,9 +22,11 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # Parameters
-args = getResolvedOptions(sys.argv, ["BUCKET_NAME", "DATE_FOLDER"])
+args = getResolvedOptions(sys.argv, ["BUCKET_NAME", "DATE_FOLDER", "FILES"])
 bucket_name = args["BUCKET_NAME"]
 date_folder = args["DATE_FOLDER"]
+files_arg = args["FILES"]   # Files string from lambda
+files = files_arg.split(",")  # Splits it back to a list
 
 input_prefix = f"validated-files/pass/{date_folder}/"
 output_prefix = f"glue-job/output/{date_folder}/"
@@ -35,6 +37,12 @@ expected_headers = [
     "Name", "Address", "Type", "Bedroom Limit",
     "Guest Limit", "Expiration Date", "Location", "X", "Y"
 ]
+
+def normalize_header(header):
+    """Normalize header text for comparison."""
+    header = header.lstrip("\ufeff")
+    normalized = header.strip().title().replace("_", " ")
+    return normalized
 
 # --- Helper Functions (User Defined Function UDFs) ---
 def strip_leading_digits(value):
@@ -77,8 +85,19 @@ def process_file(file_key):
     filename = file_key.split("/")[-1].replace(".csv", "")
     df = spark.read.option("header", True).csv(f"s3://{bucket_name}/{file_key}")
 
+    # # Schema validation
+    # if [c.strip() for c in df.columns] != expected_headers:
+    #     rej = df.withColumn("Reject_Reason", lit("Schema mismatch"))
+    #     rej.write.mode("overwrite").option("header", True).csv(f"s3://{bucket_name}/{reject_prefix}{filename}_fail")
+    #     return False
+
     # Schema validation
-    if [c.strip() for c in df.columns] != expected_headers:
+    normalized_headers = [normalize_header(c) for c in df.columns]
+    logger.info(f"Normalized headers: {normalized_headers}")
+
+    # if normalized_headers != expected_headers:    #Too strict with column order
+    # if not set(expected_headers).issubset(set(normalized_headers)):   # might cause security issues later
+    if set(normalized_headers) != set(expected_headers):    #strict with column headers but not with order
         rej = df.withColumn("Reject_Reason", lit("Schema mismatch"))
         rej.write.mode("overwrite").option("header", True).csv(f"s3://{bucket_name}/{reject_prefix}{filename}_fail")
         return False
@@ -120,18 +139,33 @@ def process_file(file_key):
     pass_df = pass_df.select(output_columns)
 
     # Write outputs
-    if pass_df.count() > 0:
+    pass_count = pass_df.count()
+    reject_count = reject_df.count()
+    if pass_count > 0:
         pass_df.write.mode("overwrite").option("header", True).csv(f"s3://{bucket_name}/{output_prefix}{filename}_pass")
-    if reject_df.count() > 0:
+    if reject_count > 0:
         reject_df.write.mode("overwrite").option("header", True).csv(f"s3://{bucket_name}/{reject_prefix}{filename}_fail")
 
-    return pass_df.count() > 0
+    return pass_count > 0
+
+# def glue_job_main():
+#     s3 = boto3.client("s3")
+#     response = s3.list_objects_v2(Bucket=bucket_name, Prefix=input_prefix)
+#     files = [obj["Key"] for obj in response.get("Contents", [])]
+
+#     if not files:
+#         logger.warning("No validated files found")
+#         return {"status": "Fail"}
+
+#     any_pass = False
+#     for f in files:
+#         logger.info(f"Processing file: {f}")
+#         if process_file(f):
+#             any_pass = True
+
+#     return {"status": "Pass" if any_pass else "Fail"}
 
 def glue_job_main():
-    s3 = boto3.client("s3")
-    response = s3.list_objects_v2(Bucket=bucket_name, Prefix=input_prefix)
-    files = [obj["Key"] for obj in response.get("Contents", [])]
-
     if not files:
         logger.warning("No validated files found")
         return {"status": "Fail"}

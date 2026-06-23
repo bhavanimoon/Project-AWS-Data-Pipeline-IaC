@@ -82,6 +82,8 @@ resource "aws_lambda_function" "lambda_preprocessor" {
   handler       = "lambda_preliminary_checks.lambda_handler"
   role          = "arn:aws:iam::834889206747:role/lambda-exec-role"
   filename      = "lambda_preliminary_checks.zip"
+  source_code_hash = filebase64sha256("lambda_preliminary_checks.zip")
+  timeout          = 181   # timeout in 3 minutes 1 second
 }
 
 # Create glue job for glue_data_processing.py
@@ -158,7 +160,7 @@ resource "aws_sfn_state_machine" "etl_pipeline" {
 resource "aws_cloudwatch_event_rule" "etl_schedule" {
   name                = "ETL_Schedule"
   description         = "Trigger ETL pipeline every day at 2 AM"
-  schedule_expression = "cron(50 13 22 6 ? 2026)"
+  schedule_expression = "cron(45 14 23 6 ? 2026)"
 }
 
 # Link Event Bridge Rule to ETL Target:

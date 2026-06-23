@@ -3,7 +3,6 @@ import csv
 import io
 import logging
 from datetime import datetime
-import os
 
 # Initialize logger
 logger = logging.getLogger()
@@ -25,12 +24,18 @@ EXPECTED_HEADERS = [
 
 def normalize_header(header):
     """Normalize header text for comparison."""
-    return header.strip().title().replace("_", " ")
+    header = header.lstrip("\ufeff")
+    normalized = header.strip().title().replace("_", " ")
+    # logger.info(f"Normalized header: '{header}' → '{normalized}'")
+    return normalized
 
 def validate_headers(headers):
     """Validate headers after normalization."""
     normalized = [normalize_header(h) for h in headers]
-    return normalized == EXPECTED_HEADERS
+    logger.info(f"Normalized headers: {normalized}")
+    logger.info(f"Expected headers: {EXPECTED_HEADERS}")
+    return set(EXPECTED_HEADERS) == set(normalized)
+    # return set(EXPECTED_HEADERS).issubset(set(normalized))
 
 def move_file(s3, bucket_name, file_key, destination_prefix, date_folder):
     """Move file to pass/fail folder with date subfolder."""
@@ -45,7 +50,6 @@ def lambda_handler(event, context):
     """Lambda entry point for preliminary checks."""
     s3 = boto3.client('s3')    
     bucket_name = event.get("bucket")   # Get bucket name from Event Bridge input passed via Step Functions
-    key = event.get("key")  # optional, may be None
 
     try:
         # Step 0: Get today's date folder (ddmmyyyy)
@@ -54,25 +58,16 @@ def lambda_handler(event, context):
         # Step 1: List all files in today's input folder
         input_prefix_today = f"{INPUT_PREFIX}{date_folder}/"
         response = s3.list_objects_v2(Bucket=bucket_name, Prefix=input_prefix_today)
-        files = [obj['Key'] for obj in response.get('Contents', [])]
+        files = [
+            obj['Key'] for obj in response.get('Contents', [])
+            if not obj['Key'].endswith('/')
+        ]
 
         # Defensive patch
         if not bucket_name:
             return {
                 "status": "Fail",
                 "reason": "Bucket name missing in event"
-            }
-
-        # If key is None, skip key-based logic
-        if key is None:
-            logger.info("No key provided — deriving files dynamically.")
-            # List the files already obtained from Step 1: List all files in today's input folder
-            return {
-                "status": "Success",
-                "bucket": bucket_name,
-                "files": files,
-                "validated_prefix": "validated-files",
-                "date_folder": date_folder
             }
 
         if not files:
@@ -115,8 +110,9 @@ def lambda_handler(event, context):
 
             # Step 3: Mandatory fields check
             try:
-                name_idx = headers.index("Name")
-                address_idx = headers.index("Address")
+                normalized_headers = [normalize_header(h) for h in headers]
+                name_idx = normalized_headers.index("Name")
+                address_idx = normalized_headers.index("Address")
             except ValueError:
                 move_file(s3, bucket_name, file_key, VALIDATED_FAIL_PREFIX, date_folder)
                 logger.error("Mandatory headers missing")
@@ -143,7 +139,7 @@ def lambda_handler(event, context):
             return {
                 "status": "Pass",
                 "bucket": bucket_name,
-                "files": passed_files,
+                "files": ",".join(passed_files),
                 "date_folder": date_folder,
                 "validated_prefix": VALIDATED_PASS_PREFIX
             }
