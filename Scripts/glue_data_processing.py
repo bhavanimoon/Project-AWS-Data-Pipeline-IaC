@@ -26,7 +26,6 @@ args = getResolvedOptions(sys.argv, ["BUCKET_NAME", "DATE_FOLDER", "FILES"])
 bucket_name = args["BUCKET_NAME"]
 date_folder = args["DATE_FOLDER"]
 files_arg = args["FILES"]   # Files string from lambda
-files = files_arg.split(",")  # Splits it back to a list
 
 input_prefix = f"validated-files/pass/{date_folder}/"
 output_prefix = f"glue-job/output/{date_folder}/"
@@ -66,7 +65,7 @@ def parse_date(value, default="30/12/2050"):
             return dt.datetime.strptime(value.strip(), fmt).strftime("%d/%m/%Y")
         except:
             continue
-    return None  # case 2: unparsable non-empty string
+    return default  # case 2: unparsable non-empty string
 
 def split_location(value):
     try:
@@ -85,30 +84,34 @@ def process_file(file_key):
     filename = file_key.split("/")[-1].replace(".csv", "")
     df = spark.read.option("header", True).csv(f"s3://{bucket_name}/{file_key}")
 
-    # # Schema validation
-    # if [c.strip() for c in df.columns] != expected_headers:
-    #     rej = df.withColumn("Reject_Reason", lit("Schema mismatch"))
-    #     rej.write.mode("overwrite").option("header", True).csv(f"s3://{bucket_name}/{reject_prefix}{filename}_fail")
-    #     return False
-
     # Schema validation
     normalized_headers = [normalize_header(c) for c in df.columns]
     logger.info(f"Normalized headers: {normalized_headers}")
 
-    # if normalized_headers != expected_headers:    #Too strict with column order
-    # if not set(expected_headers).issubset(set(normalized_headers)):   # might cause security issues later
     if set(normalized_headers) != set(expected_headers):    #strict with column headers but not with order
         rej = df.withColumn("Reject_Reason", lit("Schema mismatch"))
-        rej.write.mode("overwrite").option("header", True).csv(f"s3://{bucket_name}/{reject_prefix}{filename}_fail")
+        rej.write.mode("append").option("header", True).csv(f"s3://{bucket_name}/{reject_prefix}{filename}_fail")
         return False
 
     # Row-level validation
     df = df.withColumn("Reject_Reason", lit(None))
-    df = df.withColumn("Reject_Reason",
+    # df = df.withColumn("Reject_Reason",
+    #     when((col("Name").isNull()) & (col("Address").isNull()), lit("Missing mandatory fields"))
+    #     .when(~col("Bedroom Limit").rlike("^[0-9]*$"), lit("Invalid Bedroom Limit"))
+    #     .when(~col("Guest Limit").rlike("^[0-9]*$"), lit("Invalid Guest Limit"))
+    #     .otherwise(col("Reject_Reason"))
+    # )
+
+    df = df.withColumn(
+        "Reject_Reason",
         when((col("Name").isNull()) & (col("Address").isNull()), lit("Missing mandatory fields"))
-        .when(~col("Bedroom Limit").rlike("^[0-9]*$"), lit("Invalid Bedroom Limit"))
-        .when(~col("Guest Limit").rlike("^[0-9]*$"), lit("Invalid Guest Limit"))
-        .otherwise(col("Reject_Reason"))
+        .otherwise(
+        when(~col("Bedroom Limit").rlike("^[0-9]*$"), lit("Invalid Bedroom Limit"))
+        .otherwise(
+        when(~col("Guest Limit").rlike("^[0-9]*$"), lit("Invalid Guest Limit"))
+        .otherwise(lit(None))
+        )
+        )
     )
 
     # Split pass/reject
@@ -139,39 +142,44 @@ def process_file(file_key):
     pass_df = pass_df.select(output_columns)
 
     # Write outputs
-    pass_count = pass_df.count()
-    reject_count = reject_df.count()
-    if pass_count > 0:
+    # pass_count = pass_df.count()
+    # reject_count = reject_df.count()
+    # if pass_count > 0:
+    #     pass_df.write.mode("overwrite").option("header", True).csv(f"s3://{bucket_name}/{output_prefix}{filename}_pass")
+    # if reject_count > 0:
+    #     reject_df.write.mode("overwrite").option("header", True).csv(f"s3://{bucket_name}/{reject_prefix}{filename}_fail")
+
+    # return pass_count > 0
+
+    if pass_df.head(1):
         pass_df.write.mode("overwrite").option("header", True).csv(f"s3://{bucket_name}/{output_prefix}{filename}_pass")
-    if reject_count > 0:
+
+    if reject_df.head(1):
         reject_df.write.mode("overwrite").option("header", True).csv(f"s3://{bucket_name}/{reject_prefix}{filename}_fail")
 
-    return pass_count > 0
-
-# def glue_job_main():
-#     s3 = boto3.client("s3")
-#     response = s3.list_objects_v2(Bucket=bucket_name, Prefix=input_prefix)
-#     files = [obj["Key"] for obj in response.get("Contents", [])]
-
-#     if not files:
-#         logger.warning("No validated files found")
-#         return {"status": "Fail"}
-
-#     any_pass = False
-#     for f in files:
-#         logger.info(f"Processing file: {f}")
-#         if process_file(f):
-#             any_pass = True
-
-#     return {"status": "Pass" if any_pass else "Fail"}
-
 def glue_job_main():
-    if not files:
+    # Files from Lambda
+    files_from_lambda = files_arg.split(",") if files_arg else []
+    logger.info(f"Files passed from Lambda: {files_from_lambda}")
+
+    # Files available in S3 bucket
+    s3 = boto3.client("s3")
+    response = s3.list_objects_v2(Bucket=bucket_name, Prefix=input_prefix)
+    files_from_s3 = [
+      obj["Key"] for obj in response.get("Contents", [])
+      if obj["Key"].endswith(".csv")
+    ]
+    logger.info(f"Files discovered in S3: {files_from_s3}")
+
+    # Merge and deduplicate
+    all_files = sorted(set(files_from_lambda + files_from_s3))
+
+    if not all_files:
         logger.warning("No validated files found")
         return {"status": "Fail"}
 
     any_pass = False
-    for f in files:
+    for f in all_files:
         logger.info(f"Processing file: {f}")
         if process_file(f):
             any_pass = True
