@@ -140,7 +140,6 @@ resource "aws_sfn_state_machine" "etl_pipeline" {
           Arguments = {
             "--BUCKET_NAME.$" = "$.Payload.bucket",
             "--DATE_FOLDER.$" = "$.Payload.date_folder",
-            # Optional Arugments for future proofing:
             "--VALIDATED_PREFIX.$" = "$.Payload.validated_prefix",
             "--FILES.$"            = "$.Payload.files"
           }
@@ -160,7 +159,7 @@ resource "aws_sfn_state_machine" "etl_pipeline" {
 resource "aws_cloudwatch_event_rule" "etl_schedule" {
   name                = "ETL_Schedule"
   description         = "Trigger ETL pipeline every day at 2 AM"
-  schedule_expression = "cron(45 14 23 6 ? 2026)"
+  schedule_expression = "cron(45 06 24 6 ? 2026)"
 }
 
 # Link Event Bridge Rule to ETL Target:
