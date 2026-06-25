@@ -171,7 +171,8 @@ def glue_job_main():
 
     if not all_files:
         logger.warning("No validated files found")
-        sys.exit(1)   # Fail fast if nothing to process
+        return False
+        # sys.exit(1)   # Fail fast if nothing to process
 
     any_pass = False
     for f in all_files:
@@ -183,13 +184,30 @@ def glue_job_main():
             logger.error(f"Error processing {f}: {str(e)}")
             # Skip this file, continue with others
             continue
+    
+    return any_pass   # True if success, False if failure
 
-    # After loop, decide exit code
-    if any_pass:
-        sys.exit(0)   # Success, even if some files went to reject
-    else:
-        sys.exit(1)   # Fail, if no files passed
+    # # After loop, decide exit code
+    # if any_pass:
+    #     sys.exit(0)   # Success, even if some files went to reject
+    # else:
+    #     sys.exit(1)   # Fail, if no files passed
+
+# # Entry point
+# if __name__ == "__main__":
+#     glue_job_main()
 
 # Entry point
 if __name__ == "__main__":
-    glue_job_main()
+    try:
+        success = glue_job_main()
+        if success:
+            logger.info("Glue job completed successfully.")
+        else:
+            logger.warning("Glue job completed with no passing files.")
+        # Commiting the job to mark completion
+        glueContext.commit()
+    except Exception as e:
+        logger.error(f"Glue job failed: {str(e)}")
+        glueContext.commit()
+        raise
