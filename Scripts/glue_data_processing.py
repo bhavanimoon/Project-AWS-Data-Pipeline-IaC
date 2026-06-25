@@ -95,14 +95,6 @@ def process_file(file_key):
         rej.write.mode("append").option("header", True).csv(f"s3://{bucket_name}/{reject_prefix}{filename}_fail")
         return False
 
-    # Row-level validation
-    # df = df.withColumn("Reject_Reason",
-    #     when((col("Name").isNull()) & (col("Address").isNull()), lit("Missing mandatory fields"))
-    #     .when(~col("Bedroom Limit").rlike("^[0-9]*$"), lit("Invalid Bedroom Limit"))
-    #     .when(~col("Guest Limit").rlike("^[0-9]*$"), lit("Invalid Guest Limit"))
-    #     .otherwise(col("Reject_Reason"))
-    # )
-
     # Row-level validation   
     df = df.withColumn("Reject_Reason", lit(None))
     df = df.withColumn(
@@ -145,41 +137,33 @@ def process_file(file_key):
     pass_df = pass_df.select(output_columns)
 
     # Write outputs
-    # pass_count = pass_df.count()
-    # reject_count = reject_df.count()
-    # if pass_count > 0:
-    #     pass_df.write.mode("overwrite").option("header", True).csv(f"s3://{bucket_name}/{output_prefix}{filename}_pass")
-    # if reject_count > 0:
-    #     reject_df.write.mode("overwrite").option("header", True).csv(f"s3://{bucket_name}/{reject_prefix}{filename}_fail")
-
-    # return pass_count > 0
-
-    # Write outputs
     if pass_df.head(1):
-        pass_df.write.mode("overwrite").option("header", True).csv(f"s3://{bucket_name}/{output_prefix}{filename}_pass")
+        pass_df.write.mode("overwrite").option("header", True).csv(
+            f"s3://{bucket_name}/{output_prefix}{filename}_pass"
+        )
+        pass_df.count()   # force Spark to finish writing
+        return True
 
     if reject_df.head(1):
-        reject_df.write.mode("overwrite").option("header", True).csv(f"s3://{bucket_name}/{reject_prefix}{filename}_fail")
+        reject_df.write.mode("overwrite").option("header", True).csv(
+            f"s3://{bucket_name}/{reject_prefix}{filename}_fail"
+        )
+        reject_df.count()   # force Spark to finish writing
+        return False
 
 def glue_job_main():
-    # Files from Lambda
-    # files_from_lambda = [
-    #     f.split("/")[-1] for f in files_arg.split(",")
-    #     ] if files_arg else []
+    # Files from Lambda, lambda sends only the file names, not the full S3 path
     files_from_lambda = files_arg.split(",") if files_arg else []
     logger.info(f"Files passed from Lambda: {files_from_lambda}")
 
     # Files available in S3 bucket
     s3 = boto3.client("s3")
     response = s3.list_objects_v2(Bucket=bucket_name, Prefix=input_prefix)
+    # Collecting only the file names, discarding the full s3 path
     files_from_s3 = [
         obj["Key"].split("/")[-1] for obj in response.get("Contents", [])
         if obj["Key"].endswith(".csv")
     ]
-    # files_from_s3 = [
-    #   obj["Key"] for obj in response.get("Contents", [])
-    #   if obj["Key"].endswith(".csv")
-    # ]
     logger.info(f"Files discovered in S3: {files_from_s3}")
 
     # Merge and deduplicate
@@ -187,16 +171,24 @@ def glue_job_main():
 
     if not all_files:
         logger.warning("No validated files found")
-        raise RuntimeError("No validated files found")
-        return {"status": "Fail"}
+        sys.exit(1)   # Fail fast if nothing to process
 
     any_pass = False
     for f in all_files:
         logger.info(f"Processing file: {f}")
-        if process_file(f):
-            any_pass = True
+        try:
+            if process_file(f):
+                any_pass = True
+        except Exception as e:
+            logger.error(f"Error processing {f}: {str(e)}")
+            # Skip this file, continue with others
+            continue
 
-    return {"status": "Pass" if any_pass else "Fail"}
+    # After loop, decide exit code
+    if any_pass:
+        sys.exit(0)   # Success, even if some files went to reject
+    else:
+        sys.exit(1)   # Fail, if no files passed
 
 # Entry point
 if __name__ == "__main__":

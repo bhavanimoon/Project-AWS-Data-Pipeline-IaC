@@ -9,6 +9,7 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # Environment variable for bucket name (set in Lambda configuration)
+# Not used now. bucket name is passed from Event Bridge input via Step Functions
 # BUCKET_NAME = os.environ.get("BUCKET_NAME")
 
 # Prefixes
@@ -26,7 +27,6 @@ def normalize_header(header):
     """Normalize header text for comparison."""
     header = header.lstrip("\ufeff")
     normalized = header.strip().title().replace("_", " ")
-    # logger.info(f"Normalized header: '{header}' → '{normalized}'")
     return normalized
 
 def validate_headers(headers):
