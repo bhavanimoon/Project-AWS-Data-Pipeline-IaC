@@ -82,7 +82,7 @@ lon_udf = udf(lambda v: split_location(v)[1], DoubleType())
 # --- Main Job ---
 def process_file(file_key):
     filename = file_key.split("/")[-1].replace(".csv", "")
-    df = spark.read.option("header", True).csv(f"s3://{bucket_name}/{file_key}")
+    df = spark.read.option("header", True).csv(f"s3://{bucket_name}/{input_prefix}/{file_key}")
 
     # Schema validation
     normalized_headers = [normalize_header(c) for c in df.columns]
@@ -159,6 +159,9 @@ def process_file(file_key):
 
 def glue_job_main():
     # Files from Lambda
+    # files_from_lambda = [
+    #     f.split("/")[-1] for f in files_arg.split(",")
+    #     ] if files_arg else []
     files_from_lambda = files_arg.split(",") if files_arg else []
     logger.info(f"Files passed from Lambda: {files_from_lambda}")
 

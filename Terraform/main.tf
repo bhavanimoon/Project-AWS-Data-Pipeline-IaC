@@ -98,6 +98,10 @@ resource "aws_glue_job" "glue_processor" {
   glue_version = "3.0"
   max_capacity = 2
   timeout      = 10   # timeout in minutes
+
+  default_arguments = {
+    "--conf" = "spark.task.maxFailures=1"
+  }
 }
 
 # Create Step Functions - State Machine:
@@ -144,6 +148,7 @@ resource "aws_sfn_state_machine" "etl_pipeline" {
             "--FILES.$"            = "$.Payload.files"
           }
         },
+        TimeoutSeconds = 600
         End = true
       },
       ValidationFailed = {
@@ -159,7 +164,7 @@ resource "aws_sfn_state_machine" "etl_pipeline" {
 resource "aws_cloudwatch_event_rule" "etl_schedule" {
   name                = "ETL_Schedule"
   description         = "Trigger ETL pipeline every day at 2 AM"
-  schedule_expression = "cron(45 06 24 6 ? 2026)"
+  schedule_expression = "cron(05 08 24 6 ? 2026)"
 }
 
 # Link Event Bridge Rule to ETL Target:

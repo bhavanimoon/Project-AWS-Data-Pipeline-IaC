@@ -131,8 +131,10 @@ def lambda_handler(event, context):
 
             # Step 4: Passed preliminary checks
             move_file(s3, bucket_name, file_key, VALIDATED_PASS_PREFIX, date_folder)
-            passed_files.append(file_key)
+            temp_file_key = f"{VALIDATED_PASS_PREFIX}{date_folder}/{file_key.split('/')[-1]}"
+            passed_files.append(temp_file_key)
             logger.info("Validation passed")
+            logger.info(f"Passed Files -> {passed_files}")
 
         # Step 5: After all files processed
         if passed_files:
