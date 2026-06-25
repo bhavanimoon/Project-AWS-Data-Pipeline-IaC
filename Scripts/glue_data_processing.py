@@ -81,11 +81,13 @@ lon_udf = udf(lambda v: split_location(v)[1], DoubleType())
 
 # --- Main Job ---
 def process_file(file_key):
-    filename = file_key.split("/")[-1].replace(".csv", "")
+    # filename = file_key.split("/")[-1].replace(".csv", "")
+    filename = file_key.replace(".csv", "")
     df = spark.read.option("header", True).csv(f"s3://{bucket_name}/{input_prefix}/{file_key}")
 
-    # Schema validation
+    # Schema validation - Normalize & rename headers
     normalized_headers = [normalize_header(c) for c in df.columns]
+    df = df.toDF(*normalized_headers)
     logger.info(f"Normalized headers: {normalized_headers}")
 
     if set(normalized_headers) != set(expected_headers):    #strict with column headers but not with order
@@ -94,7 +96,6 @@ def process_file(file_key):
         return False
 
     # Row-level validation
-    df = df.withColumn("Reject_Reason", lit(None))
     # df = df.withColumn("Reject_Reason",
     #     when((col("Name").isNull()) & (col("Address").isNull()), lit("Missing mandatory fields"))
     #     .when(~col("Bedroom Limit").rlike("^[0-9]*$"), lit("Invalid Bedroom Limit"))
@@ -102,6 +103,8 @@ def process_file(file_key):
     #     .otherwise(col("Reject_Reason"))
     # )
 
+    # Row-level validation   
+    df = df.withColumn("Reject_Reason", lit(None))
     df = df.withColumn(
         "Reject_Reason",
         when((col("Name").isNull()) & (col("Address").isNull()), lit("Missing mandatory fields"))
@@ -151,6 +154,7 @@ def process_file(file_key):
 
     # return pass_count > 0
 
+    # Write outputs
     if pass_df.head(1):
         pass_df.write.mode("overwrite").option("header", True).csv(f"s3://{bucket_name}/{output_prefix}{filename}_pass")
 
@@ -169,9 +173,13 @@ def glue_job_main():
     s3 = boto3.client("s3")
     response = s3.list_objects_v2(Bucket=bucket_name, Prefix=input_prefix)
     files_from_s3 = [
-      obj["Key"] for obj in response.get("Contents", [])
-      if obj["Key"].endswith(".csv")
+        obj["Key"].split("/")[-1] for obj in response.get("Contents", [])
+        if obj["Key"].endswith(".csv")
     ]
+    # files_from_s3 = [
+    #   obj["Key"] for obj in response.get("Contents", [])
+    #   if obj["Key"].endswith(".csv")
+    # ]
     logger.info(f"Files discovered in S3: {files_from_s3}")
 
     # Merge and deduplicate
@@ -179,6 +187,7 @@ def glue_job_main():
 
     if not all_files:
         logger.warning("No validated files found")
+        raise RuntimeError("No validated files found")
         return {"status": "Fail"}
 
     any_pass = False
