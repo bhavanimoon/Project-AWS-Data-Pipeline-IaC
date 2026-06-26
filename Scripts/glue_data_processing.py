@@ -14,48 +14,39 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 try:
-    # Cleanly resolve incoming arguments from Step Functions / Lambda orchestration
     args = getResolvedOptions(sys.argv, ["JOB_NAME", "BUCKET_NAME", "DATE_FOLDER", "FILES"])
 except Exception as e:
     logger.error(f"Failed to resolve job arguments during startup: {str(e)}")
     raise e
 
-# Initialize underlying cluster architecture contexts
+# Initialize contexts
 sc = SparkContext()
 glueContext = GlueContext(sc)
 spark = glueContext.spark_session
 
-# CRITICAL ENGINE SAFETY FIXES:
-# 1. Enforce LEGACY date policy directly inside the JVM pool to resolve SparkUpgradeExceptions
+# --- CRITICAL CONFIGURATIONS LINKED NATIVELY WITHIN THE ENGINE ---
+# This eliminates the need for any complex or invalid --conf setups inside Terraform maps
+spark.conf.set("spark.task.maxFailures", "1")
+spark.conf.set("spark.speculation", "false")
 spark.conf.set("spark.sql.legacy.timeParserPolicy", "LEGACY")
-# 2. Prevent task speculation and optimize execution partition chunks
 spark.conf.set("spark.sql.files.maxPartitionBytes", "134217728")
 
-# Initialize Glue lifecycle object tracking
 job = Job(glueContext)
 job.init(args["JOB_NAME"], args)
 
-# Extract pipeline scope variables
 bucket_name = args["BUCKET_NAME"]
 date_folder = args["DATE_FOLDER"]
 
-# Define clean S3 path URI boundaries
+# Define S3 input and output targets
 input_path = f"s3://{bucket_name}/validated-files/pass/{date_folder}/*.csv"
 output_base = f"s3://{bucket_name}/glue-job/output/{date_folder}/"
 reject_base = f"s3://{bucket_name}/glue-job/reject/{date_folder}/"
-
-# Structural contract validation headers
-expected_headers = [
-    "Name", "Address", "Type", "Bedroom Limit",
-    "Guest Limit", "Expiration Date", "Location", "X", "Y"
-]
 
 def glue_job_main():
     """Main execution block processing datasets across parallel worker threads."""
     logger.info(f"Ingesting all matching target folder objects simultaneously from: {input_path}")
     
     try:
-        # Load all folder contents natively in parallel into a unified DataFrame
         df = spark.read.option("header", True).csv(input_path)
     except Exception as e:
         logger.warning(f"No files discovered or path read execution aborted: {str(e)}")
@@ -66,17 +57,16 @@ def glue_job_main():
         return True
 
     # --- 2. PARALLEL LINEAGE & FILE ORIGIN TRACKING ---
-    # Dynamically extract individual filename strings from the file URL across execution workers
     df = df.withColumn("_source_file_path", input_file_name())
     df = df.withColumn("Source_File_Name", regexp_extract(col("_source_file_path"), r"([^/]+)\.csv$", 1))
 
-    # Clean and standardize all structural incoming headers natively 
+    # Clean and standardize headers
     for c in df.columns:
         if c not in ["_source_file_path", "Source_File_Name"]:
             normalized = c.lstrip("\ufeff").strip().title().replace("_", " ")
             df = df.withColumnRenamed(c, normalized)
 
-    # --- 3. DECLARATIVE ROW-LEVEL VALIDATION BRACKETS ---
+    # --- 3. DECLARATIVE ROW-LEVEL VALIDATIONS ---
     df = df.withColumn(
         "Reject_Reason",
         when((col("Name").isNull()) & (col("Address").isNull()), lit("Missing mandatory fields"))
@@ -89,18 +79,17 @@ def glue_job_main():
         )
     )
 
-    # Bifurcate operational records downstream instantly
     pass_df = df.filter(col("Reject_Reason").isNull())
     reject_df = df.filter(col("Reject_Reason").isNotNull())
 
-    # --- 4. HIGH-PERFORMANCE DATA TRANSFORMATION PIPELINES ---
+    # --- 4. DATA TRANSFORMATION PIPELINES ---
     pass_df = pass_df.withColumn("Name", initcap(trim(regexp_replace(col("Name"), r'^\d+', ''))))
     pass_df = pass_df.withColumn("Address", when(col("Address").isNotNull(), col("Address")).otherwise(col("Name")))
     pass_df = pass_df.withColumn("Type", when(col("Type").isNull(), lit("Default Value - B&B")).otherwise(col("Type")))
     pass_df = pass_df.withColumn("Bedroom Limit", when(col("Bedroom Limit").rlike("^[0-9]+$"), col("Bedroom Limit").cast("int")).otherwise(lit(0)))
     pass_df = pass_df.withColumn("Guest Limit", when(col("Guest Limit").rlike("^[0-9]+$"), col("Guest Limit").cast("int")).otherwise(lit(0)))
 
-    # Coalesce multi-format timestamp records via the restored legacy parser engine
+    # Multi-Format Date Strings parsing
     pass_df = pass_df.withColumn(
         "Expiration Date",
         when(col("Expiration Date").isNull() | (trim(col("Expiration Date")) == ""), lit("30/12/2050"))
@@ -119,7 +108,7 @@ def glue_job_main():
     )
     pass_df = pass_df.withColumn("Expiration Date", when(col("Expiration Date").isNull(), lit("30/12/2050")).otherwise(col("Expiration Date")))
 
-    # Structural geospatial component mapping
+    # Geospatial component mapping
     clean_loc = regexp_replace(col("Location"), r'[\(\)]', '')
     loc_split = split(clean_loc, ",")
     pass_df = pass_df.withColumn("Loc_Latitude", when(loc_split.getItem(0).isNotNull(), loc_split.getItem(0).cast("double")).otherwise(lit(29.95)))
@@ -129,15 +118,15 @@ def glue_job_main():
     pass_df = pass_df.withColumn("GIS_Northing", when(col("Y").isNotNull(), col("Y").cast("int")).otherwise(lit(500000)))
     pass_df = pass_df.withColumn("Data_Lineage_ID", col("Source_File_Name"))
 
-    # Cleanup staging structural indicators prior to file sink commits
+    # Select output columns
     final_pass_cols = [c for c in pass_df.columns if c not in ["Location", "X", "Y", "Reject_Reason", "_source_file_path", "Source_File_Name"]]
     pass_df = pass_df.select(final_pass_cols)
 
     final_fail_cols = [c for c in reject_df.columns if c not in ["_source_file_path", "Source_File_Name"]]
     reject_df = reject_df.select(final_fail_cols)
 
-    # --- 5. SAFE OVERWRITE ATOMIC WRITES ---
-    logger.info("Committing parsed rows down to partitioned S3 endpoints...")
+    # --- 5. SAFE OVERWRITE WRITES ---
+    logger.info("Committing parsed rows down to S3...")
     
     pass_df.write \
         .mode("overwrite") \
@@ -151,13 +140,12 @@ def glue_job_main():
 
     return True
 
-# --- 6. PRODUCTION ENTRY POINT CONTROLS ---
+# --- 6. ENTRY POINT ---
 if __name__ == "__main__":
     try:
-        # Code execution lifecycle initialization begins here
         glue_job_main()
         logger.info("Glue job pipeline completed successfully. Proceeding to natural exit.")
         job.commit()
     except Exception as e:
         logger.critical(f"Fatal processing error encountered by driver context. Aborting: {str(e)}")
-        sys.exit(1) # Break immediately to trigger failure signals up to the Step Function orchestrator
+        sys.exit(1)
