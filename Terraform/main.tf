@@ -166,7 +166,7 @@ resource "aws_sfn_state_machine" "etl_pipeline" {
 resource "aws_cloudwatch_event_rule" "etl_schedule" {
   name                = "ETL_Schedule"
   description         = "Trigger ETL pipeline every day at 2 AM"
-  schedule_expression = "cron(35 10 26 6 ? 2026)"
+  schedule_expression = "cron(02 13 26 6 ? 2026)"
 }
 
 # Link Event Bridge Rule to ETL Target:
