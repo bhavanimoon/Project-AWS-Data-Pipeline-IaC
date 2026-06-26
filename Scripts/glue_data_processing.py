@@ -191,6 +191,24 @@ def glue_job_main():
     
     return any_pass   # True if success, False if failure
 
+# # Entry point
+# if __name__ == "__main__":
+#     try:
+#         success = glue_job_main()
+#         if success:
+#             logger.info("Glue job completed successfully.")
+#         else:
+#             logger.warning("Glue job completed with no passing files.")
+#         # Commiting the job to mark completion
+#         job.commit()
+#     except Exception as e:
+#         logger.error(f"Glue job failed: {str(e)}")
+#         job.commit()
+#         raise
+#     finally:
+#         job.commit()
+#         spark.stop()
+
 # Entry point
 if __name__ == "__main__":
     try:
@@ -199,12 +217,22 @@ if __name__ == "__main__":
             logger.info("Glue job completed successfully.")
         else:
             logger.warning("Glue job completed with no passing files.")
-        # Commiting the job to mark completion
-        job.commit()
+            
     except Exception as e:
         logger.error(f"Glue job failed: {str(e)}")
-        job.commit()
         raise
+        
     finally:
-        job.commit()
-        spark.stop()
+        # Always commit the Job object (not glueContext) to save state/lineage
+        try:
+            job.commit()
+            logger.info("Glue job successfully committed.")
+        except Exception as commit_error:
+            logger.error(f"Failed to commit job: {str(commit_error)}")
+        
+        # Stop the Spark Session to clean up resource allocation immediately
+        try:
+            spark.stop()
+            logger.info("Spark session stopped successfully.")
+        except Exception as spark_error:
+            logger.error(f"Failed to stop spark session: {str(spark_error)}")
