@@ -103,6 +103,8 @@ resource "aws_glue_job" "glue_processor" {
     "--JOB_NAME" = "glue-data-processor-job"
     "--conf"     = "spark.task.maxFailures=1"
     "--conf"     = "spark.speculation=false"
+    # FIX: Restores lenient date parsing behavior for Spark 3.x
+    "--conf"     = "spark.sql.legacy.timeParserPolicy=LEGACY"
   }
 }
 
@@ -166,7 +168,7 @@ resource "aws_sfn_state_machine" "etl_pipeline" {
 resource "aws_cloudwatch_event_rule" "etl_schedule" {
   name                = "ETL_Schedule"
   description         = "Trigger ETL pipeline every day at 2 AM"
-  schedule_expression = "cron(02 13 26 6 ? 2026)"
+  schedule_expression = "cron(50 13 26 6 ? 2026)"
 }
 
 # Link Event Bridge Rule to ETL Target:

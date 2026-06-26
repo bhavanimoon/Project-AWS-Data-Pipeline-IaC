@@ -91,6 +91,22 @@ def process_file(file_key):
     pass_df = pass_df.withColumn("Guest Limit", when(col("Guest Limit").rlike("^[0-9]+$"), col("Guest Limit").cast("int")).otherwise(lit(0)))
 
     # Handle Multi-Format Date Strings inside the JVM engine pool
+    # pass_df = pass_df.withColumn(
+    #     "Expiration Date",
+    #     when(col("Expiration Date").isNull() | (trim(col("Expiration Date")) == ""), lit("30/12/2050"))
+    #     .otherwise(
+    #         coalesce(
+    #             to_date(col("Expiration Date"), "MM/dd/yyyy hh:mm:ss a"),
+    #             to_date(col("Expiration Date"), "MM-dd-yyyy hh:mm:ss a"),
+    #             to_date(col("Expiration Date"), "dd/MM/yyyy"),
+    #             to_date(col("Expiration Date"), "dd-MM-yyyy"),
+    #             to_date(col("Expiration Date"), "MM/dd/yyyy HH:mm"),
+    #             to_date(col("Expiration Date"), "MM-dd-yyyy HH:mm")
+    #         ).cast("string")
+    #     )
+    # )
+
+    # Handle Multi-Format Date Strings safely
     pass_df = pass_df.withColumn(
         "Expiration Date",
         when(col("Expiration Date").isNull() | (trim(col("Expiration Date")) == ""), lit("30/12/2050"))
@@ -101,10 +117,14 @@ def process_file(file_key):
                 to_date(col("Expiration Date"), "dd/MM/yyyy"),
                 to_date(col("Expiration Date"), "dd-MM-yyyy"),
                 to_date(col("Expiration Date"), "MM/dd/yyyy HH:mm"),
-                to_date(col("Expiration Date"), "MM-dd-yyyy HH:mm")
+                to_date(col("Expiration Date"), "MM-dd-yyyy HH:mm"),
+                # Added robust backups to prevent parser misses:
+                to_date(col("Expiration Date"), "dd/MM/yyyy HH:mm"),
+                to_date(col("Expiration Date"), "dd-MM-yyyy HH:mm")
             ).cast("string")
         )
     )
+
     pass_df = pass_df.withColumn("Expiration Date", when(col("Expiration Date").isNull(), lit("30/12/2050")).otherwise(col("Expiration Date")))
 
     # Process geolocation arrays natively
