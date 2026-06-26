@@ -12,22 +12,27 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, lit, udf, when
 from pyspark.sql.types import StringType, IntegerType, DoubleType, DateType
 
+# --- 1. INITIALIZATION & ENTRY HANDLING ---
+# Logger Setup
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
+try:
+    # Resolve all parameters upfront in a single clean call
+    args = getResolvedOptions(sys.argv, ["JOB_NAME", "BUCKET_NAME", "DATE_FOLDER", "FILES"])
+except Exception as e:
+    logger.error(f"Failed to resolve job arguments during startup: {str(e)}")
+    raise e
 # Initialize Spark & Glue contexts
 sc = SparkContext()
 glueContext = GlueContext(sc)
 spark = glueContext.spark_session
 
-args = getResolvedOptions(sys.argv, ["JOB_NAME", "BUCKET_NAME", "DATE_FOLDER", "FILES"])
+# Initialize the Job object
 job = Job(glueContext)
 job.init(args["JOB_NAME"], args)
 
-# Logger
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-
-# Parameters
-args = getResolvedOptions(sys.argv, ["BUCKET_NAME", "DATE_FOLDER", "FILES"])
+# Parameters Extraction
 bucket_name = args["BUCKET_NAME"]
 date_folder = args["DATE_FOLDER"]
 files_arg = args["FILES"]   # Files string from lambda
@@ -84,9 +89,8 @@ parse_date_udf = udf(lambda v: parse_date(v), StringType())
 lat_udf = udf(lambda v: split_location(v)[0], DoubleType())
 lon_udf = udf(lambda v: split_location(v)[1], DoubleType())
 
-# --- Main Job ---
+# --- Core Processing Logic ---
 def process_file(file_key):
-    # filename = file_key.split("/")[-1].replace(".csv", "")
     filename = file_key.replace(".csv", "")
     df = spark.read.option("header", True).csv(f"s3://{bucket_name}/{input_prefix}/{file_key}")
 
@@ -157,14 +161,14 @@ def process_file(file_key):
         return False
 
 def glue_job_main():
-    # Files from Lambda, lambda sends only the file names, not the full S3 path
+    # Files from Lambda - lambda sends only the file names, not  full S3 path
     files_from_lambda = files_arg.split(",") if files_arg else []
     logger.info(f"Files passed from Lambda: {files_from_lambda}")
 
     # Files available in S3 bucket
     s3 = boto3.client("s3")
     response = s3.list_objects_v2(Bucket=bucket_name, Prefix=input_prefix)
-    # Collecting only the file names, discarding the full s3 path
+    # Collect only file names from S3
     files_from_s3 = [
         obj["Key"].split("/")[-1] for obj in response.get("Contents", [])
         if obj["Key"].endswith(".csv")
@@ -175,7 +179,7 @@ def glue_job_main():
     all_files = sorted(set(files_from_lambda + files_from_s3))
 
     if not all_files:
-        logger.warning("No validated files found")
+        logger.warning("No validated files found to process.")
         return False
 
     any_pass = False
@@ -186,53 +190,40 @@ def glue_job_main():
                 any_pass = True
         except Exception as e:
             logger.error(f"Error processing {f}: {str(e)}")
-            # Skip this file, continue with others
             continue
     
     return any_pass   # True if success, False if failure
 
-# # Entry point
-# if __name__ == "__main__":
-#     try:
-#         success = glue_job_main()
-#         if success:
-#             logger.info("Glue job completed successfully.")
-#         else:
-#             logger.warning("Glue job completed with no passing files.")
-#         # Commiting the job to mark completion
-#         job.commit()
-#     except Exception as e:
-#         logger.error(f"Glue job failed: {str(e)}")
-#         job.commit()
-#         raise
-#     finally:
-#         job.commit()
-#         spark.stop()
-
-# Entry point
+# --- 2. EXIT & CLEANUP HANDLING ---
 if __name__ == "__main__":
+    job_failed = False
     try:
         success = glue_job_main()
         if success:
-            logger.info("Glue job completed successfully.")
+            logger.info("Glue job pipeline completed successfully with valid records processed.")
         else:
-            logger.warning("Glue job completed with no passing files.")
+            logger.warning("Glue job pipeline executed, but no passing files/records were produced.")
             
     except Exception as e:
-        logger.error(f"Glue job failed: {str(e)}")
-        raise
+        logger.critical(f"Glue job execution encountered an unhandled exception: {str(e)}")
+        job_failed = True
         
     finally:
-        # Always commit the Job object (not glueContext) to save state/lineage
+        logger.info("Starting teardown and context cleanup...")
+        # Safe job commit (commits metadata state to Glue Data Catalog tracking if used)
         try:
             job.commit()
-            logger.info("Glue job successfully committed.")
+            logger.info("Glue job object committed successfully.")
         except Exception as commit_error:
-            logger.error(f"Failed to commit job: {str(commit_error)}")
+            logger.error(f"Error tracking job commit: {str(commit_error)}")
         
-        # Stop the Spark Session to clean up resource allocation immediately
+        # Hard stop to Spark context to terminate executors and prevent timeouts
         try:
             spark.stop()
-            logger.info("Spark session stopped successfully.")
+            logger.info("Spark session explicitly stopped.")
         except Exception as spark_error:
-            logger.error(f"Failed to stop spark session: {str(spark_error)}")
+            logger.error(f"Error closing Spark context: {str(spark_error)}")
+            
+        # Ensure correct exit state is bubbled up to the AWS orchestration level
+        if job_failed:
+            sys.exit("Job execution failed due to critical error. Check logs above.")
