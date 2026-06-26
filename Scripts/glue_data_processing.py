@@ -4,6 +4,7 @@ import logging
 import re
 import datetime as dt
 from datetime import datetime
+from awsglue.job import Job # type: ignore
 from awsglue.context import GlueContext # type: ignore
 from awsglue.utils import getResolvedOptions # type: ignore
 from pyspark import SparkContext
@@ -16,6 +17,10 @@ from pyspark.sql.types import StringType, IntegerType, DoubleType, DateType
 sc = SparkContext()
 glueContext = GlueContext(sc)
 spark = glueContext.spark_session
+
+args = getResolvedOptions(sys.argv, ["JOB_NAME", "BUCKET_NAME", "DATE_FOLDER", "FILES"])
+job = Job(glueContext)
+job.init(args["JOB_NAME"], args)
 
 # Logger
 logger = logging.getLogger()
@@ -172,7 +177,6 @@ def glue_job_main():
     if not all_files:
         logger.warning("No validated files found")
         return False
-        # sys.exit(1)   # Fail fast if nothing to process
 
     any_pass = False
     for f in all_files:
@@ -187,16 +191,6 @@ def glue_job_main():
     
     return any_pass   # True if success, False if failure
 
-    # # After loop, decide exit code
-    # if any_pass:
-    #     sys.exit(0)   # Success, even if some files went to reject
-    # else:
-    #     sys.exit(1)   # Fail, if no files passed
-
-# # Entry point
-# if __name__ == "__main__":
-#     glue_job_main()
-
 # Entry point
 if __name__ == "__main__":
     try:
@@ -206,8 +200,11 @@ if __name__ == "__main__":
         else:
             logger.warning("Glue job completed with no passing files.")
         # Commiting the job to mark completion
-        glueContext.commit()
+        job.commit()
     except Exception as e:
         logger.error(f"Glue job failed: {str(e)}")
-        glueContext.commit()
+        job.commit()
         raise
+    finally:
+        job.commit()
+        spark.stop()

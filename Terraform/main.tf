@@ -100,8 +100,9 @@ resource "aws_glue_job" "glue_processor" {
   timeout      = 10   # timeout in minutes
 
   default_arguments = {
-    "--conf" = "spark.task.maxFailures=1"
-    "--conf" = "spark.speculation=false"
+    "--JOB_NAME" = "glue-data-processor-job"
+    "--conf"     = "spark.task.maxFailures=1"
+    "--conf"     = "spark.speculation=false"
   }
 }
 
@@ -165,7 +166,7 @@ resource "aws_sfn_state_machine" "etl_pipeline" {
 resource "aws_cloudwatch_event_rule" "etl_schedule" {
   name                = "ETL_Schedule"
   description         = "Trigger ETL pipeline every day at 2 AM"
-  schedule_expression = "cron(45 15 25 6 ? 2026)"
+  schedule_expression = "cron(00 04 26 6 ? 2026)"
 }
 
 # Link Event Bridge Rule to ETL Target:
