@@ -1,12 +1,10 @@
 import sys
 import boto3
-import logging
 from datetime import datetime
 from awsglue.job import Job # type: ignore
 from awsglue.context import GlueContext # type: ignore
 from awsglue.utils import getResolvedOptions # type: ignore
 from pyspark import SparkContext
-from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, lit, when, regexp_replace, trim, initcap, to_date, split, coalesce, input_file_name, regexp_extract
 
 # --- 1. CONTEXT INITIALIZATION & PARAMETER HANDLING ---
@@ -15,10 +13,9 @@ glueContext = GlueContext(sc)
 spark = glueContext.spark_session
 
 logger = glueContext.get_logger()
-logger.setLevel(logging.INFO)
 
 try:
-    args = getResolvedOptions(sys.argv, ["JOB_NAME", "BUCKET_NAME", "DATE_FOLDER", "FILES"])
+    args = getResolvedOptions(sys.argv, ["JOB_NAME", "BUCKET_NAME", "DATE_FOLDER", "FILES", "VALIDATED_PREFIX"])
 except Exception as e:
     logger.error(f"Failed to resolve job arguments during startup: {str(e)}")
     raise e
@@ -35,23 +32,107 @@ job.init(args["JOB_NAME"], args)
 
 bucket_name = args["BUCKET_NAME"]
 date_folder = args["DATE_FOLDER"]
+validated_prefix = args["VALIDATED_PREFIX"]
+files_arg = args["FILES"]
+
+s3 = boto3.client("s3")
 
 # Define S3 input and output targets
-input_path = f"s3://{bucket_name}/validated-files/pass/{date_folder}/*.csv"
+input_path = f"s3://{bucket_name}/{validated_prefix}/{date_folder}/*.csv"
 output_base = f"s3://{bucket_name}/glue-job/output/{date_folder}/"
 reject_base = f"s3://{bucket_name}/glue-job/reject/{date_folder}/"
 
+# Expected schema headers (Title Case)
+expected_headers = [
+    "Name", "Address", "Type", "Bedroom Limit",
+    "Guest Limit", "Expiration Date", "Location", "X", "Y"
+]
+
+# Validate files from Lambda & S3 bucket
+def validate_input_files(bucket_name, validated_prefix, date_folder, files_arg):
+    """
+    Compare Lambda validated files with files currently available in S3.
+    This is only for validation and logging.
+    Spark will still process every file in the folder.
+    """
+
+    prefix = f"{validated_prefix}/{date_folder}/"
+
+    try:
+        response = s3.list_objects_v2(
+        Bucket=bucket_name,
+        Prefix=prefix
+        )
+    except Exception as e:
+        raise RuntimeError(f"Unable to read validated folder: {e}")
+
+    s3_files = {
+        obj["Key"].split("/")[-1]
+        for obj in response.get("Contents", [])
+        if obj["Key"].endswith(".csv")
+    }
+
+    lambda_files = {
+        f.strip()
+        for f in files_arg.split(",")
+        if f.strip()
+    }
+
+    if not lambda_files:
+        logger.info("No files received from Lambda.")
+
+    missing_files = lambda_files - s3_files
+    extra_files = s3_files - lambda_files
+
+    logger.info(f"Lambda files : {sorted(lambda_files)}")
+    logger.info(f"S3 files     : {sorted(s3_files)}")
+
+    if missing_files:
+        logger.warning(
+            f"Files expected from Lambda but missing in S3: "
+            f"{sorted(missing_files)}"
+        )
+
+    if extra_files:
+        logger.info(
+            f"Additional files found in S3: "
+            f"{sorted(extra_files)}"
+        )
+
+    if not s3_files:
+        raise RuntimeError(
+            "No CSV files found in validated folder."
+        )
+
+    return {
+        "lambda_count": len(lambda_files),
+        "s3_count": len(s3_files),
+        "missing": sorted(missing_files),
+        "extra": sorted(extra_files)
+    }
+
 def glue_job_main():
     """Main execution block processing datasets across parallel worker threads."""
-    logger.info(f"Ingesting all matching target folder objects simultaneously from: {input_path}")
-    
+    file_validations = validate_input_files(
+        bucket_name,
+        validated_prefix,
+        date_folder,
+        args["FILES"]
+    )
+    logger.info(f"Input files validation summary: {file_validations}")
+
+    logger.info(f"Ingesting all matching target folder objects simultaneously from: {input_path}")    
     try:
-        df = spark.read.option("header", True).csv(input_path)
+        df = (
+            spark.read
+                .option("header", True)
+                .option("inferSchema", False)
+                .csv(input_path)
+        )
         logger.info(f"Columns: {df.columns}")
-        logger.info(f"Rows: {df.count()}")
+        # logger.info(f"Rows: {df.count()}")
     except Exception as e:
         logger.warning(f"No files discovered or path read execution aborted: {str(e)}")
-        # return True
         raise
         
     if len(df.columns) == 0:
@@ -63,10 +144,17 @@ def glue_job_main():
     df = df.withColumn("Source_File_Name", regexp_extract(col("_source_file_path"), r"([^/]+)\.csv$", 1))
 
     # Clean and standardize headers
+    normalized_headers = []
     for c in df.columns:
         if c not in ["_source_file_path", "Source_File_Name"]:
             normalized = c.lstrip("\ufeff").strip().title().replace("_", " ")
+            normalized_headers.append(normalized)
             df = df.withColumnRenamed(c, normalized)
+
+    if set(normalized_headers) != set(expected_headers):
+        raise RuntimeError(
+            f"Schema mismatch detected. Normalized headers: {normalized_headers}, Expected headers: {expected_headers}"
+        )
 
     # --- 3. DECLARATIVE ROW-LEVEL VALIDATIONS ---
     df = df.withColumn(
@@ -94,7 +182,7 @@ def glue_job_main():
     # Multi-Format Date Strings parsing
     pass_df = pass_df.withColumn(
         "Expiration Date",
-        when(col("Expiration Date").isNull() | (trim(col("Expiration Date")) == ""), lit("30/12/2050"))
+        when(col("Expiration Date").isNull() | (trim(col("Expiration Date")) == ""), lit(datetime(2050,12,30).date()))
         .otherwise(
             coalesce(
                 to_date(col("Expiration Date"), "MM/dd/yyyy hh:mm:ss a"),
@@ -108,16 +196,16 @@ def glue_job_main():
             ).cast("string")
         )
     )
-    pass_df = pass_df.withColumn("Expiration Date", when(col("Expiration Date").isNull(), lit("30/12/2050")).otherwise(col("Expiration Date")))
+    pass_df = pass_df.withColumn("Expiration Date", when(col("Expiration Date").isNull(), lit(datetime(2050,12,30).date())).otherwise(col("Expiration Date")))
 
     # Geospatial component mapping
     clean_loc = regexp_replace(col("Location"), r'[\(\)]', '')
     loc_split = split(clean_loc, ",")
-    pass_df = pass_df.withColumn("Loc_Latitude", when(loc_split.getItem(0).isNotNull(), loc_split.getItem(0).cast("double")).otherwise(lit(29.95)))
-    pass_df = pass_df.withColumn("Loc_Longitude", when(loc_split.getItem(1).isNotNull(), loc_split.getItem(1).cast("double")).otherwise(lit(-90.07)))
+    pass_df = pass_df.withColumn("Loc_Latitude", coalesce(loc_split.getItem(0).cast("double"),lit(29.95)))
+    pass_df = pass_df.withColumn("Loc_Longitude", coalesce(loc_split.getItem(1).cast("double"),lit(-90.07)))
 
-    pass_df = pass_df.withColumn("GIS_Easting", when(col("X").isNotNull(), col("X").cast("int")).otherwise(lit(3650000)))
-    pass_df = pass_df.withColumn("GIS_Northing", when(col("Y").isNotNull(), col("Y").cast("int")).otherwise(lit(500000)))
+    pass_df = pass_df.withColumn("GIS_Easting", coalesce(col("X").cast("int"), lit(3650000)))
+    pass_df = pass_df.withColumn("GIS_Northing", coalesce(col("Y").cast("int"), lit(500000)))
     pass_df = pass_df.withColumn("Data_Lineage_ID", col("Source_File_Name"))
 
     # Select output columns
@@ -135,7 +223,7 @@ def glue_job_main():
             .mode("overwrite") \
             .option("header", True) \
             .csv(output_base)
-        logger.info(f"Valid rows: {pass_df.count()}")
+        # logger.info(f"Valid rows: {pass_df.count()}")
     else:
         logger.info("No valid records found. Skipping pass output.")
 
@@ -144,7 +232,7 @@ def glue_job_main():
             .mode("overwrite") \
             .option("header", True) \
             .csv(reject_base)
-        logger.info(f"Rejected rows: {reject_df.count()}")
+        # logger.info(f"Rejected rows: {reject_df.count()}")
     else:
         logger.info("No rejected records found.")
 
@@ -157,7 +245,6 @@ if __name__ == "__main__":
         logger.info("Glue job pipeline completed successfully. Proceeding to natural exit.")
         job.commit()
     except Exception as e:
+        logger.info(f"Bucket={bucket_name}, Date={date_folder}, Input={input_path}, Output={output_base}")
         logger.exception(f"Fatal processing error encountered by driver context. Aborting: {str(e)}")
         raise
-    finally:
-        spark.stop()
