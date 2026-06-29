@@ -35,7 +35,7 @@ files_arg = args["FILES"]
 s3 = boto3.client("s3")
 
 # Define S3 input and output targets
-input_path = f"s3://{bucket_name}/{validated_prefix}/{date_folder}/*.csv"
+input_path = f"s3://{bucket_name}/{validated_prefix}{date_folder}/*.csv"
 output_base = f"s3://{bucket_name}/glue-job/output/{date_folder}/"
 reject_base = f"s3://{bucket_name}/glue-job/reject/{date_folder}/"
 
@@ -53,7 +53,7 @@ def validate_input_files(bucket_name, validated_prefix, date_folder, files_arg):
     Spark will still process every file in the folder.
     """
 
-    prefix = f"{validated_prefix}/{date_folder}/"
+    prefix = f"{validated_prefix}{date_folder}/"
 
     try:
         response = s3.list_objects_v2(
@@ -85,7 +85,7 @@ def validate_input_files(bucket_name, validated_prefix, date_folder, files_arg):
     logger.info(f"S3 files     : {sorted(s3_files)}")
 
     if missing_files:
-        logger.warning(
+        logger.warn(
             f"Files expected from Lambda but missing in S3: "
             f"{sorted(missing_files)}"
         )
@@ -129,11 +129,11 @@ def glue_job_main():
         logger.info(f"Columns: {df.columns}")
         # logger.info(f"Rows: {df.count()}")
     except Exception as e:
-        logger.warning(f"No files discovered or path read execution aborted: {str(e)}")
+        logger.warn(f"No files discovered or path read execution aborted: {str(e)}")
         raise
         
     if len(df.columns) == 0:
-        logger.warning("No columns found.")
+        logger.warn("No columns found.")
         raise RuntimeError("Input CSV has no schema.")
 
     # --- 2. PARALLEL LINEAGE & FILE ORIGIN TRACKING ---
@@ -243,5 +243,5 @@ if __name__ == "__main__":
         job.commit()
     except Exception as e:
         logger.info(f"Bucket={bucket_name}, Date={date_folder}, Input={input_path}, Output={output_base}")
-        logger.exception(f"Fatal processing error encountered by driver context. Aborting: {str(e)}")
+        logger.error(f"Fatal processing error encountered by driver context. Aborting: {str(e)}")
         raise
