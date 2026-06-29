@@ -22,10 +22,7 @@ except Exception as e:
 
 # --- CRITICAL CONFIGURATIONS LINKED NATIVELY WITHIN THE ENGINE ---
 # This eliminates the need for any complex or invalid --conf setups inside Terraform maps
-spark.conf.set("spark.task.maxFailures", "1")
-spark.conf.set("spark.speculation", "false")
 spark.conf.set("spark.sql.legacy.timeParserPolicy", "LEGACY")
-spark.conf.set("spark.sql.files.maxPartitionBytes", "134217728")
 
 job = Job(glueContext)
 job.init(args["JOB_NAME"], args)
