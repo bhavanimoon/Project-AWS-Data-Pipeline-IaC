@@ -9,8 +9,12 @@ from pyspark import SparkContext
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, lit, when, regexp_replace, trim, initcap, to_date, split, coalesce, input_file_name, regexp_extract
 
-# --- 1. INITIALIZATION & PARAMETER HANDLING ---
-logger = logging.getLogger()
+# --- 1. CONTEXT INITIALIZATION & PARAMETER HANDLING ---
+sc = SparkContext.getOrCreate()
+glueContext = GlueContext(sc)
+spark = glueContext.spark_session
+
+logger = glueContext.get_logger()
 logger.setLevel(logging.INFO)
 
 try:
@@ -18,11 +22,6 @@ try:
 except Exception as e:
     logger.error(f"Failed to resolve job arguments during startup: {str(e)}")
     raise e
-
-# Initialize contexts
-sc = SparkContext()
-glueContext = GlueContext(sc)
-spark = glueContext.spark_session
 
 # --- CRITICAL CONFIGURATIONS LINKED NATIVELY WITHIN THE ENGINE ---
 # This eliminates the need for any complex or invalid --conf setups inside Terraform maps
@@ -48,13 +47,16 @@ def glue_job_main():
     
     try:
         df = spark.read.option("header", True).csv(input_path)
+        logger.info(f"Columns: {df.columns}")
+        logger.info(f"Rows: {df.count()}")
     except Exception as e:
         logger.warning(f"No files discovered or path read execution aborted: {str(e)}")
-        return True
-
+        # return True
+        raise
+        
     if len(df.columns) == 0:
-        logger.warning("Empty source metadata schema discovered. Exiting task sequence early.")
-        return True
+        logger.warning("No columns found.")
+        raise RuntimeError("Input CSV has no schema.")
 
     # --- 2. PARALLEL LINEAGE & FILE ORIGIN TRACKING ---
     df = df.withColumn("_source_file_path", input_file_name())
@@ -127,16 +129,24 @@ def glue_job_main():
 
     # --- 5. SAFE OVERWRITE WRITES ---
     logger.info("Committing parsed rows down to S3...")
-    
-    pass_df.write \
-        .mode("overwrite") \
-        .option("header", True) \
-        .csv(output_base)
+        
+    if pass_df.head(1):
+        pass_df.write \
+            .mode("overwrite") \
+            .option("header", True) \
+            .csv(output_base)
+        logger.info(f"Valid rows: {pass_df.count()}")
+    else:
+        logger.info("No valid records found. Skipping pass output.")
 
-    reject_df.write \
-        .mode("overwrite") \
-        .option("header", True) \
-        .csv(reject_base)
+    if reject_df.head(1):
+        reject_df.write \
+            .mode("overwrite") \
+            .option("header", True) \
+            .csv(reject_base)
+        logger.info(f"Rejected rows: {reject_df.count()}")
+    else:
+        logger.info("No rejected records found.")
 
     return True
 
@@ -147,5 +157,7 @@ if __name__ == "__main__":
         logger.info("Glue job pipeline completed successfully. Proceeding to natural exit.")
         job.commit()
     except Exception as e:
-        logger.critical(f"Fatal processing error encountered by driver context. Aborting: {str(e)}")
-        sys.exit(1)
+        logger.exception(f"Fatal processing error encountered by driver context. Aborting: {str(e)}")
+        raise
+    finally:
+        spark.stop()
