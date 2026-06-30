@@ -40,40 +40,40 @@ resource "aws_s3_bucket_ownership_controls" "test_bucket_ownership" {
 }
 
 # Create S3 bucket - to log terraform states:
-resource "aws_s3_bucket" "state_bucket" {
-  bucket = "bmoon-terraform-state"
+# resource "aws_s3_bucket" "state_bucket" {
+#   bucket = "bmoon-terraform-state"
 
-  tags = {
-    Name        = "bmoon-terraform-state"
-    Environment = "Dev"
-  }
-}
+#   tags = {
+#     Name        = "bmoon-terraform-state"
+#     Environment = "Dev"
+#   }
+# }
 
 # S3 bucket ownership control for the Terraform State bucket - bmoon-terraform-state:
-resource "aws_s3_bucket_ownership_controls" "state_bucket_ownership" {
-  bucket = aws_s3_bucket.state_bucket.id
+# resource "aws_s3_bucket_ownership_controls" "state_bucket_ownership" {
+#   bucket = aws_s3_bucket.state_bucket.id
 
-  rule {
-    object_ownership = "BucketOwnerEnforced"
-  }
-}
+#   rule {
+#     object_ownership = "BucketOwnerEnforced"
+#   }
+# }
 
 # Create DynamoDB table for Terraform Locks:
-resource "aws_dynamodb_table" "terraform_locks" {
-  name         = "terraform-locks"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "LockID"
+# resource "aws_dynamodb_table" "terraform_locks" {
+#   name         = "terraform-locks"
+#   billing_mode = "PAY_PER_REQUEST"
+#   hash_key     = "LockID"
 
-  attribute {
-    name = "LockID"
-    type = "S"
-  }
+#   attribute {
+#     name = "LockID"
+#     type = "S"
+#   }
 
-  tags = {
-    Name        = "terraform-locks"
-    Environment = "Dev"
-  }
-}
+#   tags = {
+#     Name        = "terraform-locks"
+#     Environment = "Dev"
+#   }
+# }
 
 # Create lambda function for lambda_preliminary_checks.py:
 resource "aws_lambda_function" "lambda_preprocessor" {
@@ -168,7 +168,7 @@ resource "aws_sfn_state_machine" "etl_pipeline" {
 resource "aws_cloudwatch_event_rule" "etl_schedule" {
   name                = "ETL_Schedule"
   description         = "Trigger ETL pipeline every day at 2 AM"
-  schedule_expression = "cron(30 08 30 6 ? 2026)"
+  schedule_expression = "cron(50 10 30 6 ? 2026)"
 }
 
 # Link Event Bridge Rule to ETL Target:
