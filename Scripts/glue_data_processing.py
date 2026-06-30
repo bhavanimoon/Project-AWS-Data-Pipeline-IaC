@@ -24,6 +24,7 @@ except Exception as e:
 # This eliminates the need for any complex or invalid --conf setups inside Terraform maps
 spark.conf.set("spark.sql.legacy.timeParserPolicy", "LEGACY")
 
+logger.info("========== JOB INITIALIZED ==========")
 job = Job(glueContext)
 job.init(args["JOB_NAME"], args)
 
@@ -213,7 +214,7 @@ def glue_job_main():
     reject_df = reject_df.select(final_fail_cols)
 
     # --- 5. SAFE OVERWRITE WRITES ---
-    logger.info("Committing parsed rows down to S3...")
+    logger.info("Committing parsed rows down to S3.")
         
     if pass_df.head(1):
         pass_df.write \
@@ -240,6 +241,7 @@ if __name__ == "__main__":
     try:
         glue_job_main()
         logger.info("Glue job pipeline completed successfully. Proceeding to natural exit.")
+        logger.info("========== FINAL CHECKPOINT ==========")
         job.commit()
     except Exception as e:
         logger.info(f"Bucket={bucket_name}, Date={date_folder}, Input={input_path}, Output={output_base}")

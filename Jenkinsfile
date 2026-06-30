@@ -46,6 +46,24 @@ pipeline {
             }
         }
 
+        stage('Terraform Format Check') {
+            steps {
+                sh '''
+                cd Terraform
+                terraform fmt -check
+                '''
+            }
+        }
+
+        stage('Terraform Validate') {
+            steps {
+                sh '''
+                cd Terraform
+                terraform validate
+                '''
+            }
+        }        
+
         stage('Terraform Plan') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'AWS_Jen_IAM_Creds',

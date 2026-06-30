@@ -1,9 +1,9 @@
 terraform {
   backend "s3" {
-    bucket         = "bmoon-terraform-state"
-    key            = "iac/terraform.tfstate"
-    region         = "ap-south-2"
-    use_lockfile   = true
+    bucket       = "bmoon-terraform-state"
+    key          = "iac/terraform.tfstate"
+    region       = "ap-south-2"
+    use_lockfile = true
     # dynamodb_table = "terraform-locks"
   }
 
@@ -60,9 +60,9 @@ resource "aws_s3_bucket_ownership_controls" "state_bucket_ownership" {
 
 # Create DynamoDB table for Terraform Locks:
 resource "aws_dynamodb_table" "terraform_locks" {
-  name           = "terraform-locks"
-  billing_mode   = "PAY_PER_REQUEST"
-  hash_key       = "LockID"
+  name         = "terraform-locks"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "LockID"
 
   attribute {
     name = "LockID"
@@ -77,13 +77,13 @@ resource "aws_dynamodb_table" "terraform_locks" {
 
 # Create lambda function for lambda_preliminary_checks.py:
 resource "aws_lambda_function" "lambda_preprocessor" {
-  function_name = "lambda-preprocessor-function"
-  runtime       = "python3.11"
-  handler       = "lambda_preliminary_checks.lambda_handler"
-  role          = "arn:aws:iam::834889206747:role/lambda-exec-role"
-  filename      = "lambda_preliminary_checks.zip"
+  function_name    = "lambda-preprocessor-function"
+  runtime          = "python3.11"
+  handler          = "lambda_preliminary_checks.lambda_handler"
+  role             = "arn:aws:iam::834889206747:role/lambda-exec-role"
+  filename         = "lambda_preliminary_checks.zip"
   source_code_hash = filebase64sha256("lambda_preliminary_checks.zip")
-  timeout          = 181   # timeout in 3 minutes 1 second
+  timeout          = 181 # timeout in 3 minutes 1 second
 }
 
 # Create glue job for glue_data_processing.py
@@ -97,12 +97,14 @@ resource "aws_glue_job" "glue_processor" {
   }
   glue_version = "3.0"
   max_capacity = 2
-  timeout      = 10   # timeout in minutes
+  timeout      = 10 # timeout in minutes
 
   default_arguments = {
-    "--JOB_NAME" = "glue-data-processor-job"
-    # FIX: Combine all custom configs into a single space-separated string key
-    # "--conf"     = "spark.task.maxFailures=1 spark.speculation=false spark.sql.legacy.timeParserPolicy=LEGACY"
+    "--JOB_NAME"                         = "glue-data-processor-job"
+    "--job-language"                     = "python"
+    "--enable-metrics"                   = "true"
+    "--enable-continuous-cloudwatch-log" = "true"
+    "--job-bookmark-option"              = "job-bookmark-disable"
   }
 }
 
@@ -130,9 +132,9 @@ resource "aws_sfn_state_machine" "etl_pipeline" {
         Type = "Choice",
         Choices = [
           {
-            Variable = "$.Payload.status",
+            Variable     = "$.Payload.status",
             StringEquals = "Pass",
-            Next = "RunGlueJob"
+            Next         = "RunGlueJob"
           }
         ],
         Default = "ValidationFailed"
@@ -144,17 +146,17 @@ resource "aws_sfn_state_machine" "etl_pipeline" {
           #JobName = aws_glue_job.simple_glue.name
           JobName = aws_glue_job.glue_processor.name,
           Arguments = {
-            "--BUCKET_NAME.$" = "$.Payload.bucket",
-            "--DATE_FOLDER.$" = "$.Payload.date_folder",
+            "--BUCKET_NAME.$"      = "$.Payload.bucket",
+            "--DATE_FOLDER.$"      = "$.Payload.date_folder",
             "--VALIDATED_PREFIX.$" = "$.Payload.validated_prefix",
             "--FILES.$"            = "$.Payload.files"
           }
         },
         TimeoutSeconds = 720
-        End = true
+        End            = true
       },
       ValidationFailed = {
-        Type = "Fail",
+        Type  = "Fail",
         Error = "ValidationFailed",
         Cause = "$.Payload.reason"
       }
@@ -166,7 +168,7 @@ resource "aws_sfn_state_machine" "etl_pipeline" {
 resource "aws_cloudwatch_event_rule" "etl_schedule" {
   name                = "ETL_Schedule"
   description         = "Trigger ETL pipeline every day at 2 AM"
-  schedule_expression = "cron(32 17 29 6 ? 2026)"
+  schedule_expression = "cron(40 17 29 6 ? 2026)"
 }
 
 # Link Event Bridge Rule to ETL Target:
